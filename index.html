@@ -216,6 +216,18 @@
       <div style="font-size:.8rem;color:var(--mut);margin-bottom:8px;">Vista previa · primeros 50 clientes</div>
       <div class="tbl-wrap"><table id="prevTable"><thead></thead><tbody></tbody></table></div>
     </div>
+    <div id="cobradorWrap" style="display:none;margin-top:22px;">
+      <div class="card-title">4 · Resumen por Cobrador Actual</div>
+      <div class="btn-row" style="margin-bottom:10px;">
+        <button class="btn btn-p" id="fCobCli" onclick="setCobVista('cli')">Nº clientes</button>
+        <button class="btn btn-p" id="fCobSal" onclick="setCobVista('saldo')" style="opacity:.75">Suma saldo crédito</button>
+        <button class="btn btn-p" id="fCobPct" onclick="setCobVista('pct')" style="opacity:.75">% del cobrador</button>
+        <button class="btn btn-p" id="fCobAll" onclick="setCobVista('all')" style="opacity:.75">Todo (N + $ + %)</button>
+      </div>
+      <div style="font-size:.78rem;font-weight:700;color:var(--primary);margin:4px 0 6px;">Filtro Calificación Cliente Mensual</div>
+      <div class="btn-row" id="calmChips" style="margin-bottom:12px;flex-wrap:wrap;"></div>
+      <div class="tbl-wrap"><table id="cobradorTable"><thead></thead><tbody></tbody></table></div>
+    </div>
   </div>
 
 </main>
@@ -343,6 +355,7 @@ function loadFile(file){
     document.getElementById('btnDownload').style.display='none';
     document.getElementById('kpiRow').style.display='none';
     document.getElementById('tableWrap').style.display='none';
+    const cw=document.getElementById('cobradorWrap');if(cw)cw.style.display='none';
     processedData=[];
   };
   reader.readAsArrayBuffer(file);
@@ -662,6 +675,8 @@ function processData(){
           processedData=sorted;
           renderTable(sorted.slice(0,50));
           document.getElementById('tableWrap').style.display='';
+          renderCobrador(sorted);
+          document.getElementById('cobradorWrap').style.display='';
           document.getElementById('btnDownload').style.display='';
           document.getElementById('btnProcess').disabled=false;
           setProgress(100,'✅ Completado · '+result.length.toLocaleString()+' clientes');
@@ -698,6 +713,90 @@ function renderTable(data){
   }).join('');
 }
 
+function money(n){return (Number(n)||0).toLocaleString('es-EC',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function pct(part,tot){if(!tot)return '0.0%';return ((part/tot)*100).toFixed(1)+'%';}
+let cobVista='cli',cobDataFull=[],cobCalifSel=null;
+const CALM_ORDER=['AA','A','B','C','D','E','E1','E2'];
+function setCobVista(v){
+  cobVista=v;
+  ['cli','saldo','pct','all'].forEach(k=>{
+    const b=document.getElementById('fCob'+({cli:'Cli',saldo:'Sal',pct:'Pct',all:'All'}[k]));
+    if(b)b.style.opacity=k===v?'1':'.7';
+  });
+  renderCobrador();
+}
+function cobDataFiltrado(){
+  if(!cobCalifSel||!cobCalifSel.size)return cobDataFull;
+  return cobDataFull.filter(r=>cobCalifSel.has(normCalif(r['Calificación Cliente Mensual'])));
+}
+function toggleCalmChip(val){
+  if(val==='ALL'){
+    cobCalifSel=new Set(CALM_ORDER.filter(k=>cobDataFull.some(r=>normCalif(r['Calificación Cliente Mensual'])===k)));
+  }else{
+    if(!cobCalifSel)cobCalifSel=new Set();
+    if(cobCalifSel.has(val))cobCalifSel.delete(val);else cobCalifSel.add(val);
+  }
+  paintCalmChips();
+  renderCobrador();
+}
+function paintCalmChips(){
+  const wrap=document.getElementById('calmChips');if(!wrap)return;
+  const present=[...new Set(cobDataFull.map(r=>normCalif(r['Calificación Cliente Mensual'])).filter(Boolean))];
+  present.sort((a,b)=>CALM_ORDER.indexOf(a)-CALM_ORDER.indexOf(b));
+  const allOn=!cobCalifSel||present.every(v=>cobCalifSel.has(v));
+  const chip=(id,label,on)=>`<button class="btn btn-p" style="padding:6px 12px;font-size:.78rem;opacity:${on?'1':'.55'}" onclick="toggleCalmChip('${id}')">${label}</button>`;
+  wrap.innerHTML=chip('ALL','Todas',allOn)+present.map(v=>chip(v,v,!cobCalifSel||cobCalifSel.has(v))).join('');
+}
+function emptyCat(){return {n:0,s:0};}
+function buildCobradorRows(data){
+  const map={};
+  data.forEach(r=>{
+    const cob=String(r['Nombre del Cobrador Actual']||'(Sin cobrador)').trim()||'(Sin cobrador)';
+    if(!map[cob])map[cob]={cobrador:cob,clientes:0,saldo:0,Mantiene:emptyCat(),Deteriora:emptyCat(),Mejora:emptyCat(),'Sin Clasificar':emptyCat()};
+    const o=map[cob];
+    const cat=r['Categoría Cliente Rodamiento']||'Sin Clasificar';
+    const key=o[cat]?cat:'Sin Clasificar';
+    const sal=parseFloat(r['Suma Saldo Crédito Final Total'])||0;
+    o.clientes++;o.saldo+=sal;o[key].n++;o[key].s+=sal;
+  });
+  const rows=Object.values(map).sort((a,b)=>b.saldo-a.saldo);
+  const tot={cobrador:'TOTAL',clientes:0,saldo:0,Mantiene:emptyCat(),Deteriora:emptyCat(),Mejora:emptyCat(),'Sin Clasificar':emptyCat()};
+  rows.forEach(o=>{
+    tot.clientes+=o.clientes;tot.saldo+=o.saldo;
+    ['Mantiene','Deteriora','Mejora','Sin Clasificar'].forEach(k=>{tot[k].n+=o[k].n;tot[k].s+=o[k].s;});
+  });
+  rows.push(tot);
+  return rows;
+}
+function cellCat(o,k,mode){
+  const c=o[k]||emptyCat();
+  if(mode==='cli')return c.n.toLocaleString();
+  if(mode==='saldo')return money(c.s);
+  if(mode==='pct')return pct(c.s,o.saldo)+' / '+pct(c.n,o.clientes);
+  return `${c.n.toLocaleString()} · $${money(c.s)} · ${pct(c.s,o.saldo)}`;
+}
+function renderCobrador(data){
+  if(data){
+    cobDataFull=data;
+    cobCalifSel=new Set(cobDataFull.map(r=>normCalif(r['Calificación Cliente Mensual'])).filter(Boolean));
+    paintCalmChips();
+  }
+  const rows=buildCobradorRows(cobDataFiltrado());
+  const cols=['Cobrador Actual','Clientes','Saldo Crédito Total','Mantiene','Deteriora','Mejora','Sin Clasificar'];
+  document.querySelector('#cobradorTable thead').innerHTML='<tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr>';
+  document.querySelector('#cobradorTable tbody').innerHTML=rows.map(o=>{
+    const bold=o.cobrador==='TOTAL'?'font-weight:800;background:#e8f4fd;':'';
+    return `<tr style="${bold}">
+      <td>${o.cobrador}</td>
+      <td style="text-align:center">${o.clientes.toLocaleString()}</td>
+      <td style="text-align:right">${money(o.saldo)}</td>
+      <td style="text-align:center">${cellCat(o,'Mantiene',cobVista)}</td>
+      <td style="text-align:center">${cellCat(o,'Deteriora',cobVista)}</td>
+      <td style="text-align:center">${cellCat(o,'Mejora',cobVista)}</td>
+      <td style="text-align:center">${cellCat(o,'Sin Clasificar',cobVista)}</td></tr>`;
+  }).join('');
+}
+
 // ── DOWNLOAD EXCEL WITH COLORS ────────────────────────────────────────────────
 function downloadExcel(){
   if(!processedData.length)return;
@@ -705,7 +804,7 @@ function downloadExcel(){
   const ws=XLSX.utils.json_to_sheet(processedData,{header:OUT_COLS});
 
   // Column widths
-  ws['!cols']=[38,22,42,16,38,38,12,12,10,16,18,22,18,18,18,14,16].map(w=>({wch:w}));
+  ws['!cols']=[38,22,42,16,38,38,12,12,10,16,18,22,18,18,18,14,16,22].map(w=>({wch:w}));
 
   // Styles via SheetJS — add fill colors per row
   const rng=XLSX.utils.decode_range(ws['!ref']);
@@ -736,6 +835,26 @@ function downloadExcel(){
   }
 
   XLSX.utils.book_append_sheet(wb,ws,'Clientes Procesados');
+  const cobRows=buildCobradorRows(processedData).map(o=>({
+    'Cobrador Actual':o.cobrador,
+    'Clientes':o.clientes,
+    'Saldo Crédito Total':+o.saldo.toFixed(2),
+    'Mantiene Clientes':o.Mantiene.n,
+    'Mantiene Saldo':+o.Mantiene.s.toFixed(2),
+    'Mantiene % Clientes':pct(o.Mantiene.n,o.clientes),
+    'Mantiene % Saldo':pct(o.Mantiene.s,o.saldo),
+    'Deteriora Clientes':o.Deteriora.n,
+    'Deteriora Saldo':+o.Deteriora.s.toFixed(2),
+    'Deteriora % Clientes':pct(o.Deteriora.n,o.clientes),
+    'Deteriora % Saldo':pct(o.Deteriora.s,o.saldo),
+    'Mejora Clientes':o.Mejora.n,
+    'Mejora Saldo':+o.Mejora.s.toFixed(2),
+    'Mejora % Clientes':pct(o.Mejora.n,o.clientes),
+    'Mejora % Saldo':pct(o.Mejora.s,o.saldo)
+  }));
+  const ws2=XLSX.utils.json_to_sheet(cobRows);
+  ws2['!cols']=[{wch:42},{wch:12},{wch:18},{wch:14},{wch:16},{wch:16},{wch:16},{wch:16},{wch:16},{wch:16},{wch:16},{wch:14},{wch:16},{wch:16},{wch:16}];
+  XLSX.utils.book_append_sheet(wb,ws2,'Resumen Cobrador');
   const d=new Date();
   XLSX.writeFile(wb,`CLIENTES_PROCESADOS_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.xlsx`,{bookSST:false,type:'binary',cellStyles:true});
 }
