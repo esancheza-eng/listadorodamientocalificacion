@@ -273,9 +273,26 @@ function drop(e){e.preventDefault();ev(e,'');const f=e.dataTransfer.files[0];if(
 // ── DATE UTILS ────────────────────────────────────────────────────────────────
 function parseDate(v){
   if(v===null||v===undefined||v==='')return null;
-  if(v instanceof Date)return isNaN(v)?null:v;
-  if(typeof v==='number'){const u=Date.UTC(1899,11,30)+Math.round(v)*86400000;const d=new Date(u);return isNaN(d)?null:d;}
-  const d=new Date(v);return isNaN(d)?null:d;
+  if(typeof v==='number'&&isFinite(v)){
+    const d=new Date(Date.UTC(1899,11,30)+Math.round(Number(v))*86400000);
+    return isNaN(d)?null:d;
+  }
+  if(typeof v==='string'){
+    const s=v.trim();
+    let m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+    if(m){
+      let day=+m[1],mon=+m[2],y=+m[3];if(y<100)y+=2000;
+      if(day<=12&&mon>12){const t=day;day=mon;mon=t;}
+      return new Date(Date.UTC(y,mon-1,day));
+    }
+    m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if(m)return new Date(Date.UTC(+m[1],+m[2]-1,+m[3]));
+  }
+  if(v instanceof Date){
+    if(isNaN(v))return null;
+    return new Date(v.getTime()+v.getTimezoneOffset()*60000);
+  }
+  return null;
 }
 function toYMD(d){
   if(!d)return null;
@@ -300,7 +317,18 @@ function loadFile(file){
     const rawD=XLSX.utils.sheet_to_json(wb2.Sheets[wb2.SheetNames[0]],{defval:null});
     // Merge: use rawD for dates, wb for numbers
     const rawN=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:null});
-    rawData=rawD.map((r,i)=>{const n=rawN[i]||{};return Object.assign({},r,{'Nro Vencimiento Final':n['Nro Vencimiento Final'],'Plazo Crédito':n['Plazo Crédito'],'Saldo Cuota':n['Saldo Cuota'],'Saldo Crédito Final':n['Saldo Crédito Final'],'Valor Cuota':n['Valor Cuota']});});
+    rawData=rawD.map((r,i)=>{
+      const n=rawN[i]||{};
+      return Object.assign({},r,{
+        'Nro Vencimiento Final':n['Nro Vencimiento Final'],
+        'Plazo Crédito':n['Plazo Crédito'],
+        'Saldo Cuota':n['Saldo Cuota'],
+        'Saldo Crédito Final':n['Saldo Crédito Final'],
+        'Valor Cuota':n['Valor Cuota'],
+        'Fecha Vencimiento Inicial':n['Fecha Vencimiento Inicial']!=null&&n['Fecha Vencimiento Inicial']!==''?n['Fecha Vencimiento Inicial']:r['Fecha Vencimiento Inicial'],
+        'Fecha Vencimiento Final':n['Fecha Vencimiento Final']!=null&&n['Fecha Vencimiento Final']!==''?n['Fecha Vencimiento Final']:r['Fecha Vencimiento Final']
+      });
+    });
     document.getElementById('fileName').textContent='✅ '+file.name+' · '+rawData.length.toLocaleString()+' filas';
     buildFilters();
     ['filtersCard','processCard'].forEach(id=>document.getElementById(id).style.display='');
