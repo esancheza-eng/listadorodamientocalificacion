@@ -253,6 +253,14 @@ function califRealAfectacion(dias){
   if(n<=180)return 'E1';
   return 'E2';
 }
+const RANK_CAL={AA:0,A:1,B:2,C:3,D:4,E:5,E1:6,E2:7};
+function categoriaRodamiento(inicial,rod){
+  const a=normCalif(inicial),b=normCalif(rod);
+  if(!a||!b||!(a in RANK_CAL)||!(b in RANK_CAL))return 'Sin Clasificar';
+  if(RANK_CAL[b]===RANK_CAL[a])return 'Mantiene';
+  if(RANK_CAL[b]>RANK_CAL[a])return 'Deteriora';
+  return 'Mejora';
+}
 
 // Output columns in required order (NO Cod Cliente)
 const OUT_COLS=[
@@ -261,7 +269,7 @@ const OUT_COLS=[
   'Calificación Cliente Mensual','Calificación Cliente Diaria','HOY','Calificación Real Afectación',
   'Fecha de Vencimiento Inicial','Fecha de Vencimiento Final Más Antigua','Suma Saldo Cuota (Fecha Antigua)',
   'Suma Saldo Crédito Final Total','Suma Valor Cuota Total',
-  'Calificación Concatenada','Categoría del Cliente'
+  'Calificación Concatenada','Categoría del Cliente','Categoría Cliente Rodamiento'
 ];
 
 let rawData=[],processedData=[],treeMap={};
@@ -598,6 +606,8 @@ function processData(){
           if(MANTIENE.has(concat))cat='Mantiene';
           else if(EMPEORA.has(concat))cat='Empeora';
           else if(MEJORA.has(concat))cat='Mejora';
+          const calRod=califRealAfectacion(diasHoy(c.min_fecha));
+          const catRod=categoriaRodamiento(c.cal_m,calRod);
           result.push({
             'Nombre del Cliente':c.nombre,
             'Número de Identificación':c.nro_id,
@@ -608,14 +618,15 @@ function processData(){
             'Calificación Cliente Mensual':c.cal_m,
             'Calificación Cliente Diaria':c.cal_d,
             'HOY':diasHoy(c.min_fecha),
-            'Calificación Real Afectación':califRealAfectacion(diasHoy(c.min_fecha)),
+            'Calificación Real Afectación':calRod,
             'Fecha de Vencimiento Inicial':c.min_fecha_ini?toDMY(c.min_fecha_ini):'',
             'Fecha de Vencimiento Final Más Antigua':c.min_fecha?toDMY(c.min_fecha):'',
             'Suma Saldo Cuota (Fecha Antigua)':+sumaCuota.toFixed(2),
             'Suma Saldo Crédito Final Total':+sumaSaldo.toFixed(2),
             'Suma Valor Cuota Total':+sumaValor.toFixed(2),
             'Calificación Concatenada':concat,
-            'Categoría del Cliente':cat
+            'Categoría del Cliente':cat,
+            'Categoría Cliente Rodamiento':catRod
           });
         }
         processedData=result;
@@ -662,7 +673,7 @@ function processData(){
 
 // ── TABLE PREVIEW ─────────────────────────────────────────────────────────────
 function renderTable(data){
-  const cols=['Nombre','Identificación','Dirección','Teléfono','Zona','Cobrador','Cal.M','Cal.D','HOY','Cal. Real Afec.','F. Venc. Ini.','F. Venc. Fin.','Saldo Cuota','Saldo Crédito','Valor Cuota','Calif.','Categoría'];
+  const cols=['Nombre','Identificación','Dirección','Teléfono','Zona','Cobrador','Cal.M','Cal.D','HOY','Cal. Real Afec.','F. Venc. Ini.','F. Venc. Fin.','Saldo Cuota','Saldo Crédito','Valor Cuota','Calif.','Categoría','Cat. Rodamiento'];
   document.querySelector('#prevTable thead').innerHTML='<tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr>';
   document.querySelector('#prevTable tbody').innerHTML=data.map(r=>{
     const cat=r['Categoría del Cliente'];
@@ -682,7 +693,8 @@ function renderTable(data){
       <td style="text-align:right">${r['Suma Saldo Crédito Final Total'].toFixed(2)}</td>
       <td style="text-align:right">${r['Suma Valor Cuota Total'].toFixed(2)}</td>
       <td style="text-align:center">${r['Calificación Concatenada']}</td>
-      <td><span class="badge ${bc}">${cat}</span></td></tr>`;
+      <td><span class="badge ${bc}">${cat}</span></td>
+      <td><span class="badge ${r['Categoría Cliente Rodamiento']==='Mantiene'?'bM':r['Categoría Cliente Rodamiento']==='Deteriora'?'bE':r['Categoría Cliente Rodamiento']==='Mejora'?'bJ':'bS'}">${r['Categoría Cliente Rodamiento']}</span></td></tr>`;
   }).join('');
 }
 
