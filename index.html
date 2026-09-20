@@ -772,7 +772,7 @@ function cellCat(o,k,mode){
   const c=o[k]||emptyCat();
   if(mode==='cli')return c.n.toLocaleString();
   if(mode==='saldo')return money(c.s);
-  if(mode==='pct')return pct(c.s,o.saldo)+' / '+pct(c.n,o.clientes);
+  if(mode==='pct')return pct(c.s,o.saldo);
   return `${c.n.toLocaleString()} · $${money(c.s)} · ${pct(c.s,o.saldo)}`;
 }
 function renderCobrador(data){
@@ -841,15 +841,12 @@ function downloadExcel(){
     'Saldo Crédito Total':+o.saldo.toFixed(2),
     'Mantiene Clientes':o.Mantiene.n,
     'Mantiene Saldo':+o.Mantiene.s.toFixed(2),
-    'Mantiene % Clientes':pct(o.Mantiene.n,o.clientes),
     'Mantiene % Saldo':pct(o.Mantiene.s,o.saldo),
     'Deteriora Clientes':o.Deteriora.n,
     'Deteriora Saldo':+o.Deteriora.s.toFixed(2),
-    'Deteriora % Clientes':pct(o.Deteriora.n,o.clientes),
     'Deteriora % Saldo':pct(o.Deteriora.s,o.saldo),
     'Mejora Clientes':o.Mejora.n,
     'Mejora Saldo':+o.Mejora.s.toFixed(2),
-    'Mejora % Clientes':pct(o.Mejora.n,o.clientes),
     'Mejora % Saldo':pct(o.Mejora.s,o.saldo)
   }));
   const ws2=XLSX.utils.json_to_sheet(cobRows);
