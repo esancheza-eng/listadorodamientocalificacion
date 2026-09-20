@@ -94,7 +94,7 @@
   <div class="logo">📊</div>
   <div>
     <h1>Procesador de Clientes Marcimex</h1>
-    <p>Carga tu archivo Excel · Aplica filtros · Descarga el resultado</p>
+    <p>Corte de días: 30/09/2026 · Vencimiento Final más antigua · Cal. Real Afectación</p>
   </div>
 </header>
 <main>
@@ -211,6 +211,7 @@
       <div class="kpi emp"><div class="num" id="kEmp">0</div><div class="lbl">Empeora</div></div>
       <div class="kpi mej"><div class="num" id="kMej">0</div><div class="lbl">Mejora</div></div>
     </div>
+    <div id="kpiCalif" style="display:none;margin-top:10px;font-size:.82rem;color:#334;"></div>
     <div id="tableWrap" style="display:none;margin-top:18px;">
       <div style="font-size:.8rem;color:var(--mut);margin-bottom:8px;">Vista previa · primeros 50 clientes</div>
       <div class="tbl-wrap"><table id="prevTable"><thead></thead><tbody></tbody></table></div>
@@ -226,12 +227,20 @@ const MEJORA  =new Set(['AA.AA','A.AA','B.AA','B.A','C.AA','C.A','C.B','D.AA','D
   'E.AA','E.A','E.B','E.C','E.D','E1.AA','E1.A','E1.B','E1.C','E1.D','E1.E']);
 const MESES=['enero','febrero','marzo','abril','mayo','junio','julio','agosto',
              'septiembre','octubre','noviembre','diciembre'];
+const FECHA_CORTE=new Date(2026,8,30); // 30 de septiembre 2026 (mes 8 = septiembre)
+function ymdParts(d){
+  return {y:d.getFullYear(),m:d.getMonth(),day:d.getDate()};
+}
 function diasHoy(d){
   if(!d)return '';
-  const t=new Date();
-  const hoy=Date.UTC(t.getFullYear(),t.getMonth(),t.getDate());
-  const ini=Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate());
-  return Math.floor((hoy-ini)/86400000);
+  const corte=Date.UTC(FECHA_CORTE.getFullYear(),FECHA_CORTE.getMonth(),FECHA_CORTE.getDate());
+  const p=ymdParts(d);
+  const ini=Date.UTC(p.y,p.m,p.day);
+  return Math.floor((corte-ini)/86400000);
+}
+function normCalif(v){
+  if(v===null||v===undefined)return '';
+  return String(v).trim().toUpperCase().replace(/\s+/g,'');
 }
 function califRealAfectacion(dias){
   if(dias===''||dias===null||dias===undefined)return '';
@@ -271,11 +280,13 @@ function parseDate(v){
 }
 function toYMD(d){
   if(!d)return null;
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+  const p=ymdParts(d);
+  return `${p.y}-${String(p.m+1).padStart(2,'0')}-${String(p.day).padStart(2,'0')}`;
 }
 function toDMY(d){
   if(!d)return '';
-  return `${String(d.getUTCDate()).padStart(2,'0')}/${String(d.getUTCMonth()+1).padStart(2,'0')}/${d.getUTCFullYear()}`;
+  const p=ymdParts(d);
+  return `${String(p.day).padStart(2,'0')}/${String(p.m+1).padStart(2,'0')}/${p.y}`;
 }
 
 // ── LOAD FILE ─────────────────────────────────────────────────────────────────
@@ -314,8 +325,8 @@ function buildFilters(){
     const nv=r['Nro Vencimiento Final'];
     if(nv!==null&&nv!==undefined&&nv!==''){const p=Math.round(Number(nv));if(!isNaN(p))sets.nrovenc.add(String(p));}
     if(r['Línea Producto'])sets.linea.add(r['Línea Producto'].toString().trim());
-    const cm=r['Calificación Cliente Mensual'];
-    if(cm!==null&&cm!==undefined&&String(cm).trim()!=='')sets.calm.add(String(cm).trim().toUpperCase());
+    const cm=normCalif(r['Calificación Cliente Mensual']);
+    if(cm)sets.calm.add(cm);
     else sets.calm.add('(Sin Calificación)');
   });
   // Date trees
@@ -473,7 +484,11 @@ function filterTree(prefix,q){
 }
 
 // ── GET SELECTED ──────────────────────────────────────────────────────────────
-function getSelDates(p){return new Set(qAll(`.${p}_day:checked`).map(c=>c.dataset.date));}
+function getSelDates(p){
+  const sa=document.getElementById(`${p}_all`);
+  if(sa&&sa.checked)return null; // null = no filtrar fechas
+  return new Set(qAll(`.${p}_day:checked`).map(c=>c.dataset.date));
+}
 function getSelChk(cls){return new Set(qAll('.'+cls+':checked').map(c=>c.value));}
 function qAll(s){return[...document.querySelectorAll(s)];}
 
@@ -504,27 +519,31 @@ function processData(){
       const tic=r['Tienda Cupo']?r['Tienda Cupo'].toString().trim():'';
       const _nvr=r['Nro Vencimiento Final'];const _nvp=(_nvr!==null&&_nvr!==undefined&&_nvr!=='')?Math.round(Number(_nvr)):NaN;const nv=isNaN(_nvp)?'':String(_nvp);
       const lin=r['Línea Producto']?r['Línea Producto'].toString().trim():'';
-      const cm=r['Calificación Cliente Mensual']?String(r['Calificación Cliente Mensual']).trim().toUpperCase():'(Sin Calificación)';
-      return (!i||selIni.has(i))&&(!f||selFin.has(f))
+      const cm=normCalif(r['Calificación Cliente Mensual'])||'(Sin Calificación)';
+      const passCalm=!selCalm.size||selCalm.has(cm);
+      const passIni=!selIni||!i||selIni.has(i);
+      const passFin=!selFin||!f||selFin.has(f);
+      return passIni&&passFin
         &&selOri.has(ori)
         &&(!tif||selTiFac.has(tif))
         &&(!tic||selTiCupo.has(tic))
         &&(!nv||selNroVenc.has(nv))
         &&(!lin||selLinea.has(lin))
-        &&selCalm.has(cm);
+        &&passCalm;
     });
 
     setProgress(30,'Agrupando… ('+filtered.length.toLocaleString()+' filas)');
     setTimeout(()=>{
       const clients={};
       filtered.forEach(r=>{
-        const id=r['Cod Cliente'];if(!id)return;
+        const id=r['Cod Cliente'];
+        if(!id || String(id).trim()==='' || String(id).toLowerCase()==='total')return;
         if(!clients[id]){
           clients[id]={
             nombre:r['Nombre Cliente']||'',nro_id:r['Nro Identificación']||'',
             dir:r['Dirección Principal']||'',tel:r['Telefono Celular']||'',
             zona:r['Zona Cliente Final']||'',cobrador:r['Nombre Cobrador Actual']||'',
-            cal_m:r['Calificación Cliente Mensual']||'',cal_d:r['Calificación Cliente Diaria']||'',
+            cal_m:normCalif(r['Calificación Cliente Mensual']),cal_d:normCalif(r['Calificación Cliente Diaria']),
             min_fecha:null,min_fecha_ini:null,rows:[]
           };
         }
@@ -576,13 +595,34 @@ function processData(){
         setProgress(95,'Renderizando…');
         setTimeout(()=>{
           const tots={Mantiene:0,Empeora:0,Mejora:0,'Sin Clasificar':0};
-          result.forEach(r=>tots[r['Categoría del Cliente']]++);
+          const byM={};
+          result.forEach(r=>{
+            tots[r['Categoría del Cliente']]=(tots[r['Categoría del Cliente']]||0)+1;
+            const m=r['Calificación Cliente Mensual']||'(Sin)';
+            byM[m]=(byM[m]||0)+1;
+          });
           document.getElementById('kTotal').textContent=result.length.toLocaleString();
           document.getElementById('kMan').textContent=tots.Mantiene.toLocaleString();
           document.getElementById('kEmp').textContent=tots.Empeora.toLocaleString();
           document.getElementById('kMej').textContent=tots.Mejora.toLocaleString();
           document.getElementById('kpiRow').style.display='flex';
-          renderTable(result.slice(0,50));
+          const order=['AA','A','B','C','D','E','E1','E2'];
+          const parts=Object.keys(byM).sort((a,b)=>{
+            const ia=order.indexOf(a),ib=order.indexOf(b);
+            if(ia>=0&&ib>=0)return ia-ib;if(ia>=0)return -1;if(ib>=0)return 1;return a.localeCompare(b);
+          }).map(k=>`<b>${k}</b>: ${byM[k].toLocaleString()}`);
+          const kc=document.getElementById('kpiCalif');
+          kc.style.display='';
+          kc.innerHTML='Calificación mensual en resultado → '+parts.join(' &nbsp;·&nbsp; ');
+          const sorted=[...result].sort((a,b)=>{
+            const ia=order.indexOf(a['Calificación Cliente Mensual']);
+            const ib=order.indexOf(b['Calificación Cliente Mensual']);
+            const sa=ia<0?99:ia,sb=ib<0?99:ib;
+            if(sa!==sb)return sa-sb;
+            return String(a['Nombre del Cliente']).localeCompare(String(b['Nombre del Cliente']));
+          });
+          processedData=sorted;
+          renderTable(sorted.slice(0,50));
           document.getElementById('tableWrap').style.display='';
           document.getElementById('btnDownload').style.display='';
           document.getElementById('btnProcess').disabled=false;
