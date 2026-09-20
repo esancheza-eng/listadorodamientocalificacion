@@ -227,16 +227,15 @@ const MEJORA  =new Set(['AA.AA','A.AA','B.AA','B.A','C.AA','C.A','C.B','D.AA','D
   'E.AA','E.A','E.B','E.C','E.D','E1.AA','E1.A','E1.B','E1.C','E1.D','E1.E']);
 const MESES=['enero','febrero','marzo','abril','mayo','junio','julio','agosto',
              'septiembre','octubre','noviembre','diciembre'];
-const FECHA_CORTE=new Date(2026,8,30); // 30 de septiembre 2026 (mes 8 = septiembre)
+const FECHA_CORTE_UTC=Date.UTC(2026,8,30); // 30/09/2026
 function ymdParts(d){
-  return {y:d.getFullYear(),m:d.getMonth(),day:d.getDate()};
+  return {y:d.getUTCFullYear(),m:d.getUTCMonth(),day:d.getUTCDate()};
 }
 function diasHoy(d){
   if(!d)return '';
-  const corte=Date.UTC(FECHA_CORTE.getFullYear(),FECHA_CORTE.getMonth(),FECHA_CORTE.getDate());
   const p=ymdParts(d);
-  const ini=Date.UTC(p.y,p.m,p.day);
-  return Math.floor((corte-ini)/86400000);
+  const fin=Date.UTC(p.y,p.m,p.day);
+  return Math.floor((FECHA_CORTE_UTC-fin)/86400000);
 }
 function normCalif(v){
   if(v===null||v===undefined)return '';
@@ -275,7 +274,7 @@ function drop(e){e.preventDefault();ev(e,'');const f=e.dataTransfer.files[0];if(
 function parseDate(v){
   if(v===null||v===undefined||v==='')return null;
   if(v instanceof Date)return isNaN(v)?null:v;
-  if(typeof v==='number'){const u=(v-25569)*86400000;const d=new Date(u);return isNaN(d)?null:d;}
+  if(typeof v==='number'){const u=Date.UTC(1899,11,30)+Math.round(v)*86400000;const d=new Date(u);return isNaN(d)?null:d;}
   const d=new Date(v);return isNaN(d)?null:d;
 }
 function toYMD(d){
