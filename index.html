@@ -109,6 +109,12 @@
       <p style="margin-top:6px;">Formatos soportados: .xlsx · .xls</p>
     </div>
     <input type="file" id="fileInput" accept=".xlsx,.xls" onchange="loadFile(this.files[0])"/>
+    <div class="btn-row" style="margin-top:14px;">
+      <label style="font-size:.85rem;font-weight:700;color:var(--primary);">👥 Equipo de cobradores
+        <select id="selEquipo" class="chk-search" style="width:auto;margin:0 0 0 8px;font-size:.85rem;" onchange="cambiarEquipo()"></select>
+      </label>
+      <span id="equipoInfo" style="font-size:.78rem;color:var(--mut);"></span>
+    </div>
   </div>
 
   <!-- 2. FILTERS -->
@@ -232,7 +238,7 @@
 
   <!-- 5. HISTORIAL DIARIO -->
   <div class="card" id="histCard">
-    <div class="card-title">5 · Historial diario de rodamiento por cobrador</div>
+    <div class="card-title">5 · Historial diario de rodamiento por cobrador · <span id="histEquipo"></span></div>
     <div style="font-size:.78rem;color:var(--mut);margin-bottom:12px;">
       Cada vez que procesas se guarda el resultado del día (si procesas varias veces el mismo día, queda el último).
       Se agrupa por mes de corte. Se guarda en este navegador: usa <b>Respaldo</b> para no perderlo o pasarlo a otra PC.
@@ -252,6 +258,42 @@
     <div id="histResumen" class="kpis" style="margin-bottom:12px;"></div>
     <div class="tbl-wrap"><table id="histTable"><thead></thead><tbody></tbody></table></div>
     <div id="histVacio" style="font-size:.82rem;color:var(--mut);margin-top:8px;"></div>
+  </div>
+
+  <!-- 6. SEGUIMIENTO DIARIO DE CAMBIOS (cliente por cliente) -->
+  <div class="card" id="segCard">
+    <div class="card-title">6 · Seguimiento diario de cambios por cobrador · <span id="segEquipo"></span></div>
+    <div style="font-size:.78rem;color:var(--mut);margin-bottom:12px;">
+      Compara cada cliente con su categoría del día anterior procesado (dentro del mismo mes) y cuenta cuántos
+      <b style="color:var(--mej)">pasan a Libera</b> (Mejora), <b style="color:var(--man)">pasan a Mantiene</b> o
+      <b style="color:var(--emp)">pasan a Deteriora</b>. Haz clic en un número para ver los clientes.
+      El primer día procesado del mes es el día base.
+    </div>
+    <div class="btn-row" style="margin-bottom:12px;">
+      <label style="font-size:.8rem;font-weight:700;color:var(--primary);">Mes
+        <select id="segMes" class="chk-search" style="width:auto;margin:0 0 0 6px;" onchange="segDiasOpciones();segRender()"></select>
+      </label>
+      <label style="font-size:.8rem;font-weight:700;color:var(--primary);">Día
+        <select id="segDia" class="chk-search" style="width:auto;margin:0 0 0 6px;" onchange="segRender()"></select>
+      </label>
+      <button class="btn btn-s" style="padding:7px 14px;font-size:.8rem" onclick="segExcel()">⬇️ Excel del día</button>
+      <button class="btn btn-p" style="padding:7px 14px;font-size:.8rem" onclick="segExport()">💾 Respaldo seguimiento</button>
+      <button class="btn btn-p" style="padding:7px 14px;font-size:.8rem" onclick="document.getElementById('segFile').click()">📂 Restaurar seguimiento</button>
+      <input type="file" id="segFile" accept=".json" style="display:none" onchange="segImport(this.files[0]);this.value=''"/>
+    </div>
+    <div id="segResumen" class="kpis" style="margin-bottom:12px;"></div>
+    <div style="font-size:.82rem;font-weight:700;color:var(--primary);margin:6px 0;" id="segTitDia">Cambios del día</div>
+    <div class="tbl-wrap"><table id="segTable"><thead></thead><tbody></tbody></table></div>
+    <div id="segVacio" style="font-size:.82rem;color:var(--mut);margin-top:8px;"></div>
+    <div id="segListaWrap" style="display:none;margin-top:16px;">
+      <div class="btn-row" style="margin-bottom:6px;justify-content:space-between;">
+        <div style="font-size:.85rem;font-weight:700;color:var(--primary);" id="segListaTit"></div>
+        <span class="lnk" onclick="document.getElementById('segListaWrap').style.display='none'">✖ Cerrar lista</span>
+      </div>
+      <div class="tbl-wrap"><table id="segLista"><thead></thead><tbody></tbody></table></div>
+    </div>
+    <div style="font-size:.82rem;font-weight:700;color:var(--primary);margin:18px 0 6px;" id="segTitMes">Acumulado del mes</div>
+    <div class="tbl-wrap"><table id="segMesTable"><thead></thead><tbody></tbody></table></div>
   </div>
 
 </main>
@@ -279,7 +321,46 @@ function claveCobrador(v){
   return String(v??'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase()
     .replace(/[^A-Z ]/g,' ').split(/\s+/).filter(Boolean).sort().join(' ');
 }
-const COB_PERMITIDOS_KEYS=new Map(COBRADORES_PERMITIDOS.map(n=>[claveCobrador(n),n]));
+// Equipos: cada coordinador ve solo a su equipo. 'TODOS' = todos los cobradores del archivo, sin filtrar.
+// Para agregar otro equipo con lista fija: {id:'QUEVEDO',nombre:'Zona Quevedo',lista:[ 'NOMBRE 1', ... ]}
+const EQUIPOS=[
+  {id:'MILAGRO',nombre:'Zona Milagro',lista:COBRADORES_PERMITIDOS},
+  {id:'TODOS',nombre:'Todos los cobradores del archivo',lista:null}
+];
+EQUIPOS.forEach(e=>{e.keys=e.lista?new Map(e.lista.map(n=>[claveCobrador(n),n])):null;});
+function equipoActual(){
+  const el=document.getElementById('selEquipo');
+  return EQUIPOS.find(e=>e.id===(el&&el.value))||EQUIPOS[0];
+}
+function initEquipos(){
+  const el=document.getElementById('selEquipo');if(!el)return;
+  el.innerHTML=EQUIPOS.map(e=>`<option value="${e.id}">${e.nombre}${e.lista?` (${e.lista.length} cobradores)`:''}</option>`).join('');
+  let guardado=null;try{guardado=localStorage.getItem('rodamientoEquipo');}catch(e){}
+  if(guardado&&EQUIPOS.some(e=>e.id===guardado))el.value=guardado;
+}
+function cambiarEquipo(){
+  try{localStorage.setItem('rodamientoEquipo',equipoActual().id);}catch(e){}
+  document.getElementById('equipoInfo').textContent='';
+  if(typeof histInit==='function')histInit();
+  if(rawData&&rawData.length&&processedData&&processedData.length)
+    document.getElementById('statusMsg').textContent='Cambiaste de equipo: presiona "Procesar Datos" otra vez.';
+}
+// Al subir un archivo: si trae cobradores de un equipo con lista, se elige ese equipo; si no, "Todos".
+function detectarEquipo(rows){
+  const keys=new Set(rows.map(r=>claveCobrador(r['Nombre Cobrador Actual'])).filter(Boolean));
+  let mejor=null,mejorN=0;
+  EQUIPOS.filter(e=>e.keys).forEach(e=>{
+    const n=[...e.keys.keys()].filter(k=>keys.has(k)).length;
+    if(n>mejorN){mejor=e;mejorN=n;}
+  });
+  const eq=mejor||EQUIPOS.find(e=>!e.keys);
+  const el=document.getElementById('selEquipo');
+  if(el&&eq){el.value=eq.id;try{localStorage.setItem('rodamientoEquipo',eq.id);}catch(e){}}
+  document.getElementById('equipoInfo').textContent=mejor
+    ?`Detectado: ${mejorN} de ${mejor.lista.length} cobradores de ${mejor.nombre} en el archivo.`
+    :`El archivo no tiene cobradores de Zona Milagro: se muestran sus ${keys.size} cobradores.`;
+  if(typeof histInit==='function')histInit();
+}
 const FECHA_CORTE_UTC=Date.UTC(_HOY_LOCAL.getFullYear(),_HOY_LOCAL.getMonth()+1,0); // día 0 del mes siguiente = último día del mes actual
 document.addEventListener('DOMContentLoaded',()=>{
   const c=new Date(FECHA_CORTE_UTC);
@@ -396,6 +477,7 @@ function loadFile(file){
       });
     });
     document.getElementById('fileName').textContent='✅ '+file.name+' · '+rawData.length.toLocaleString()+' filas';
+    detectarEquipo(rawData);
     buildFilters();
     ['filtersCard','processCard'].forEach(id=>document.getElementById(id).style.display='');
     document.getElementById('btnDownload').style.display='none';
@@ -605,11 +687,12 @@ function processData(){
     const selLinea=getSelChk('chk-linea');
     const selCalm=getSelChk('chk-calm');
 
+    const eq=equipoActual();
     const cobEncontrados=new Set();
     const filtered=rawData.filter(r=>{
       const kc=claveCobrador(r['Nombre Cobrador Actual']);
-      if(!COB_PERMITIDOS_KEYS.has(kc))return false;
-      cobEncontrados.add(kc);
+      if(eq.keys&&!eq.keys.has(kc))return false;
+      if(kc)cobEncontrados.add(kc);
       const i=toYMD(parseDate(r['Fecha Vencimiento Inicial']));
       const f=toYMD(parseDate(r['Fecha Vencimiento Final']));
       const ori=r['Origen Factura']?r['Origen Factura'].toString().trim():'(Sin Origen)';
@@ -630,7 +713,7 @@ function processData(){
         &&passCalm;
     });
 
-    const cobFaltan=[...COB_PERMITIDOS_KEYS.keys()].filter(k=>!cobEncontrados.has(k)).map(k=>COB_PERMITIDOS_KEYS.get(k));
+    const cobFaltan=eq.keys?[...eq.keys.keys()].filter(k=>!cobEncontrados.has(k)).map(k=>eq.keys.get(k)):[];
     const cobAviso=cobFaltan.length?` · ⚠️ ${cobFaltan.length} cobrador(es) sin filas: ${cobFaltan.join(', ')}`:'';
     setProgress(30,'Agrupando… ('+filtered.length.toLocaleString()+' filas)');
     setTimeout(()=>{
@@ -734,7 +817,7 @@ function processData(){
           document.getElementById('cobradorWrap').style.display='';
           document.getElementById('btnDownload').style.display='';
           document.getElementById('btnProcess').disabled=false;
-          setProgress(100,'✅ Completado · '+result.length.toLocaleString()+' clientes · '+cobEncontrados.size+' de '+COB_PERMITIDOS_KEYS.size+' cobradores'+cobAviso);
+          setProgress(100,'✅ Completado · '+result.length.toLocaleString()+' clientes · '+eq.nombre+': '+cobEncontrados.size+(eq.keys?' de '+eq.keys.size:'')+' cobradores'+cobAviso);
           histGuardarDia(sorted);
         },100);
       },100);
@@ -858,14 +941,14 @@ function renderCobrador(data){
 
 // ── HISTORIAL DIARIO (guardado en este navegador) ────────────────────────────
 // Estructura: { "AAAA-MM": { corte:"dd/mm/aaaa", dias:{ "AAAA-MM-DD": { hora:"hh:mm", cob:{ nombre:{c,s,M:[n,s],D:[n,s],J:[n,s],S:[n,s]} } } } } }
-const HIST_KEY='rodamientoHistorial_v1';
+function histKey(){const id=equipoActual().id;return id==='MILAGRO'?'rodamientoHistorial_v1':'rodamientoHistorial_v1__'+id;}
 const HIST_CATS=[['M','Mantiene'],['D','Deteriora'],['J','Mejora'],['S','Sin Clasificar']];
 function escH(v){return String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
 function histLeer(){
-  try{const t=localStorage.getItem(HIST_KEY);return t?JSON.parse(t):{};}catch(e){return {};}
+  try{const t=localStorage.getItem(histKey());return t?JSON.parse(t):{};}catch(e){return {};}
 }
 function histEscribir(h){
-  try{localStorage.setItem(HIST_KEY,JSON.stringify(h));return true;}
+  try{localStorage.setItem(histKey(),JSON.stringify(h));return true;}
   catch(e){alert('No se pudo guardar el historial en este navegador. Descarga un Respaldo.');return false;}
 }
 function histMesCorte(){
@@ -906,10 +989,11 @@ function histSumar(cobMap,soloCob){
   return t;
 }
 function histInit(mesSel){
+  const he=document.getElementById('histEquipo');if(he)he.textContent=equipoActual().nombre;
   const h=histLeer();
   const sm=document.getElementById('histMes');if(!sm)return;
   const meses=Object.keys(h).sort().reverse();
-  const actual=mesSel||sm.value||meses[0];
+  const actual=(mesSel&&h[mesSel])?mesSel:(h[sm.value]?sm.value:meses[0]);
   sm.innerHTML=meses.length?meses.map(m=>{
     const [y,mm]=m.split('-');
     return `<option value="${m}" ${m===actual?'selected':''}>${MESES[+mm-1]} ${y} · corte ${escH(h[m].corte)}</option>`;
@@ -1019,7 +1103,7 @@ function histExcel(){
   const ws=XLSX.utils.json_to_sheet(filas);
   ws['!cols']=[12,7,40,10,16,10,14,10,14,10,14,12,12].map(w=>({wch:w}));
   XLSX.utils.book_append_sheet(wb,ws,'Historial '+mes);
-  XLSX.writeFile(wb,`HISTORIAL_RODAMIENTO_${mes.replace('-','')}.xlsx`);
+  XLSX.writeFile(wb,`HISTORIAL_RODAMIENTO_${equipoActual().id}_${mes.replace('-','')}.xlsx`);
 }
 function histExport(){
   const h=histLeer();
@@ -1027,7 +1111,7 @@ function histExport(){
   const blob=new Blob([JSON.stringify(h,null,1)],{type:'application/json'});
   const a=document.createElement('a');const d=new Date();
   a.href=URL.createObjectURL(blob);
-  a.download=`respaldo_historial_rodamiento_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.json`;
+  a.download=`respaldo_historial_rodamiento_${equipoActual().id}_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.json`;
   a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
 function histImport(file){
@@ -1106,7 +1190,276 @@ function downloadExcel(){
   const d=new Date();
   XLSX.writeFile(wb,`CLIENTES_PROCESADOS_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.xlsx`,{bookSST:false,type:'binary',cellStyles:true});
 }
+initEquipos();
 histInit();
+</script>
+<script>
+// ══ 6 · SEGUIMIENTO DIARIO DE CAMBIOS (cliente por cliente) ══════════════════
+// No modifica nada de las secciones 1-5: se engancha a histGuardarDia / histInit.
+// Guardado (por equipo): { "AAAA-MM": { corte, cli:{id:[nombre,identif,calM]}, dias:{ "AAAA-MM-DD": {
+//   hora, cobs:[...], ids:[...], cob:[idx], cat:"MDJS…", rod:"0127-…", d:[dias], s:[saldo],
+//   mov:{ cobrador:{L,M,D,O,N,E,X} } | null } } } }
+// Se guarda el detalle cliente a cliente de los últimos SEG_DIAS_DETALLE días procesados; de los demás quedan los conteos (mov, cnt).
+const SEG_DIAS_DETALLE=7;
+const SEG_CAT={Mantiene:'M',Deteriora:'D',Mejora:'J','Sin Clasificar':'S'};
+const SEG_CAT_TXT={M:'Mantiene',D:'Deteriora',J:'Libera',S:'Sin Clasif.'};
+const SEG_ROD=['AA','A','B','C','D','E','E1','E2'];
+const SEG_TIPOS=[['L','🟢 Pasan a Libera','var(--mej)'],['M','🔵 Pasan a Mantiene','var(--man)'],['D','🔴 Pasan a Deteriora','var(--emp)'],
+                 ['O','Pasan a Sin Clasif.','#888'],['N','⚪ Sin cambio','#555'],['E','➕ Entran','#555'],['X','➖ Salen','#555']];
+function segKey(){const id=equipoActual().id;return 'rodamientoSeguimiento_v1__'+id;}
+function segLeer(){try{const t=localStorage.getItem(segKey());return t?JSON.parse(t):{};}catch(e){return {};}}
+function segEscribir(h){
+  try{localStorage.setItem(segKey(),JSON.stringify(h));return true;}
+  catch(e){alert('No se pudo guardar el seguimiento diario en este navegador (espacio lleno). Descarga un Respaldo seguimiento.');return false;}
+}
+function segIdCliente(r){return String(r['Número de Identificación']||r['Nombre del Cliente']||'').trim();}
+function segPrevDia(mesObj,dia){
+  const ant=Object.keys(mesObj.dias).filter(d=>d<dia&&mesObj.dias[d].ids).sort();
+  return ant.length?ant[ant.length-1]:null;
+}
+function segCalcMov(prev,hoy){
+  if(!prev)return null;
+  const pm=new Map();prev.ids.forEach((id,i)=>pm.set(id,i));
+  const mov={};const fila=c=>mov[c]||(mov[c]={L:0,M:0,D:0,O:0,N:0,E:0,X:0});
+  const vistos=new Set();
+  hoy.ids.forEach((id,i)=>{
+    const o=fila(hoy.cobs[hoy.cob[i]]);const c=hoy.cat[i];
+    if(!pm.has(id)){o.E++;return;}
+    vistos.add(id);
+    const cp=prev.cat[pm.get(id)];
+    if(cp===c)o.N++;
+    else o[c==='J'?'L':c==='M'?'M':c==='D'?'D':'O']++;
+  });
+  prev.ids.forEach((id,i)=>{if(!vistos.has(id))fila(prev.cobs[prev.cob[i]]).X++;});
+  return mov;
+}
+function segGuardarDia(data){
+  if(!data||!data.length)return;
+  const ahora=new Date();
+  const dia=`${ahora.getFullYear()}-${String(ahora.getMonth()+1).padStart(2,'0')}-${String(ahora.getDate()).padStart(2,'0')}`;
+  const hora=`${String(ahora.getHours()).padStart(2,'0')}:${String(ahora.getMinutes()).padStart(2,'0')}`;
+  const mc=histMesCorte();
+  const h=segLeer();
+  if(!h[mc.key])h[mc.key]={corte:mc.txt,cli:{},dias:{}};
+  const M=h[mc.key];M.corte=mc.txt;M.cli=M.cli||{};
+  const cobs=[],cobIdx=new Map(),ids=[],cob=[],d=[],s=[];let cat='',rod='';
+  const usados=new Set();
+  data.forEach(r=>{
+    const id=segIdCliente(r);if(!id||usados.has(id))return;usados.add(id);
+    const cn=String(r['Nombre del Cobrador Actual']||'(Sin cobrador)').trim()||'(Sin cobrador)';
+    if(!cobIdx.has(cn)){cobIdx.set(cn,cobs.length);cobs.push(cn);}
+    ids.push(id);cob.push(cobIdx.get(cn));
+    cat+=SEG_CAT[r['Categoría Cliente Rodamiento']]||'S';
+    const ri=SEG_ROD.indexOf(r['Calificación Real Afectación']);rod+=ri<0?'-':String(ri);
+    d.push(r['HOY']===''?null:r['HOY']);
+    s.push(Math.round((parseFloat(r['Suma Saldo Crédito Final Total'])||0)*100)/100);
+    M.cli[id]=[String(r['Nombre del Cliente']||''),String(r['Número de Identificación']||''),String(r['Calificación Cliente Mensual']||'')];
+  });
+  const hoy={hora,cobs,ids,cob,cat,rod,d,s};
+  hoy.cnt=segConteoHoy(hoy);
+  const pd=segPrevDia(M,dia);
+  hoy.mov=segCalcMov(pd?M.dias[pd]:null,hoy);
+  M.dias[dia]=hoy;
+  // Si se reprocesó un día anterior a otros ya guardados, recalcular los siguientes
+  Object.keys(M.dias).filter(x=>x>dia&&M.dias[x].ids).sort().forEach(x=>{
+    const p=segPrevDia(M,x);M.dias[x].mov=segCalcMov(p?M.dias[p]:null,M.dias[x]);
+  });
+  // Podar: detalle cliente a cliente solo de los últimos SEG_DIAS_DETALLE días procesados (se conservan mov y cnt)
+  const conDet=[];Object.keys(h).forEach(m=>Object.keys(h[m].dias).forEach(x=>{if(h[m].dias[x].ids)conDet.push([x,m]);}));
+  conDet.sort((a,b)=>a[0]<b[0]?-1:1).slice(0,Math.max(0,conDet.length-SEG_DIAS_DETALLE)).forEach(([x,m])=>{
+    const o=h[m].dias[x];if(!o.cnt)o.cnt=segConteoHoy(o);
+    delete o.ids;delete o.cob;delete o.cat;delete o.rod;delete o.d;delete o.s;delete o.cobs;
+  });
+  Object.keys(h).forEach(m=>{if(!Object.values(h[m].dias).some(o=>o.ids))delete h[m].cli;});
+  if(segEscribir(h))segInit(mc.key,dia);
+}
+function segInit(mesSel,diaSel){
+  const se=document.getElementById('segEquipo');if(se)se.textContent=equipoActual().nombre;
+  const h=segLeer();const sm=document.getElementById('segMes');if(!sm)return;
+  const meses=Object.keys(h).sort().reverse();
+  const actual=(mesSel&&h[mesSel])?mesSel:(h[sm.value]?sm.value:meses[0]);
+  sm.innerHTML=meses.length?meses.map(m=>{const [y,mm]=m.split('-');
+    return `<option value="${m}" ${m===actual?'selected':''}>${MESES[+mm-1]} ${y} · corte ${escH(h[m].corte)}</option>`;}).join('')
+    :'<option value="">(sin datos)</option>';
+  segDiasOpciones(diaSel);segRender();
+}
+function segDiasOpciones(diaSel){
+  const h=segLeer();const mes=document.getElementById('segMes').value;const sd=document.getElementById('segDia');
+  const dias=h[mes]?Object.keys(h[mes].dias).sort().reverse():[];
+  const actual=(diaSel&&dias.includes(diaSel))?diaSel:dias[0];
+  sd.innerHTML=dias.length?dias.map(x=>`<option value="${x}" ${x===actual?'selected':''}>${fmtDia(x)}</option>`).join(''):'<option value="">—</option>';
+}
+function segConteoHoy(day){
+  if(day.cnt)return day.cnt;
+  const t={};if(!day.ids)return null;
+  day.ids.forEach((id,i)=>{const c=day.cobs[day.cob[i]];const o=t[c]||(t[c]={J:0,M:0,D:0,S:0,n:0});o[day.cat[i]]++;o.n++;});
+  return t;
+}
+function segNum(n,tipo,cob,color,neg){
+  if(!n)return `<span style="color:#bbb">0</span>`;
+  return `<span class="lnk" style="color:${color};font-weight:700;font-size:.8rem;text-decoration:none;border-bottom:1px dotted ${color}" `+
+    `onclick="segVerLista('${tipo}',${cob===null?'null':`decodeURIComponent('${encodeURIComponent(cob)}')`})">${n.toLocaleString()}</span>`;
+}
+function segRender(){
+  const h=segLeer();const mes=document.getElementById('segMes').value;const dia=document.getElementById('segDia').value;
+  const th=document.querySelector('#segTable thead'),tb=document.querySelector('#segTable tbody');
+  const vac=document.getElementById('segVacio'),kp=document.getElementById('segResumen');
+  const mth=document.querySelector('#segMesTable thead'),mtb=document.querySelector('#segMesTable tbody');
+  document.getElementById('segListaWrap').style.display='none';
+  if(!h[mes]||!h[mes].dias[dia]){
+    th.innerHTML=tb.innerHTML=mth.innerHTML=mtb.innerHTML=kp.innerHTML='';
+    vac.textContent='Aún no hay días guardados. Procesa un archivo: el primer día queda como base y desde el siguiente se ven los cambios.';
+    document.getElementById('segTitMes').textContent='';return;
+  }
+  const M=h[mes],day=M.dias[dia],prevK=segPrevDia(M,dia)||Object.keys(M.dias).filter(x=>x<dia).sort().pop();
+  document.getElementById('segTitDia').textContent=`Cambios del día ${fmtDia(dia)}`+(prevK?` vs ${fmtDia(prevK)}`:'');
+  const conteo=segConteoHoy(day);
+  // ── Tabla del día
+  th.innerHTML='<tr>'+['Cobrador','Clientes hoy',...SEG_TIPOS.map(t=>t[1]),'Hoy Libera','Hoy Mantiene','Hoy Deteriora'].map(c=>`<th>${c}</th>`).join('')+'</tr>';
+  if(!day.mov){
+    vac.textContent=day.ids?'Día base del mes: desde el siguiente día procesado se verán los cambios. Abajo, la situación de hoy por cobrador.':'';
+  }else vac.textContent='';
+  const cobsAll=[...new Set([...(conteo?Object.keys(conteo):[]),...(day.mov?Object.keys(day.mov):[])])].sort((a,b)=>a.localeCompare(b));
+  const tot={L:0,M:0,D:0,O:0,N:0,E:0,X:0,J:0,MM:0,DD:0,n:0};
+  let html='';
+  cobsAll.forEach(c=>{
+    const mv=day.mov?(day.mov[c]||{L:0,M:0,D:0,O:0,N:0,E:0,X:0}):null;
+    const ct=conteo?(conteo[c]||{J:0,M:0,D:0,n:0}):null;
+    SEG_TIPOS.forEach(([k])=>{if(mv)tot[k]+=mv[k];});
+    if(ct){tot.J+=ct.J;tot.MM+=ct.M;tot.DD+=ct.D;tot.n+=ct.n;}
+    html+=`<tr><td>${escH(c)}</td><td style="text-align:center">${ct?ct.n.toLocaleString():'—'}</td>`+
+      SEG_TIPOS.map(([k,,col])=>`<td style="text-align:center">${mv?segNum(mv[k],k,c,col):'—'}</td>`).join('')+
+      `<td style="text-align:center">${ct?segNum(ct.J,'hJ',c,'var(--mej)'):'—'}</td>`+
+      `<td style="text-align:center">${ct?segNum(ct.M,'hM',c,'var(--man)'):'—'}</td>`+
+      `<td style="text-align:center">${ct?segNum(ct.D,'hD',c,'var(--emp)'):'—'}</td></tr>`;
+  });
+  html+=`<tr style="font-weight:800;background:#e8f4fd;"><td>TOTAL</td><td style="text-align:center">${conteo?tot.n.toLocaleString():'—'}</td>`+
+    SEG_TIPOS.map(([k,,col])=>`<td style="text-align:center">${day.mov?segNum(tot[k],k,null,col):'—'}</td>`).join('')+
+    `<td style="text-align:center">${conteo?segNum(tot.J,'hJ',null,'var(--mej)'):'—'}</td>`+
+    `<td style="text-align:center">${conteo?segNum(tot.MM,'hM',null,'var(--man)'):'—'}</td>`+
+    `<td style="text-align:center">${conteo?segNum(tot.DD,'hD',null,'var(--emp)'):'—'}</td></tr>`;
+  tb.innerHTML=html;
+  // ── KPIs del día
+  const k=(cls,num,lbl)=>`<div class="kpi ${cls}"><div class="num">${num.toLocaleString()}</div><div class="lbl">${lbl}</div></div>`;
+  kp.innerHTML=day.mov?k('mej',tot.L,'Pasan a Libera hoy')+k('man',tot.M,'Pasan a Mantiene hoy')+k('emp',tot.D,'Pasan a Deteriora hoy')+k('tot',tot.N,'Sin cambio'):'';
+  // ── Acumulado del mes hasta el día elegido
+  const acum={};
+  Object.keys(M.dias).filter(x=>x<=dia).sort().forEach(x=>{
+    const mv=M.dias[x].mov;if(!mv)return;
+    Object.entries(mv).forEach(([c,o])=>{const a=acum[c]||(acum[c]={L:0,M:0,D:0,E:0,X:0,dias:0});a.L+=o.L;a.M+=o.M;a.D+=o.D;a.E+=o.E;a.X+=o.X;a.dias++;});
+  });
+  const filas=Object.entries(acum).map(([c,a])=>({c,...a,neto:a.L-a.D})).sort((a,b)=>b.neto-a.neto||a.c.localeCompare(b.c));
+  document.getElementById('segTitMes').textContent=`Acumulado del mes hasta el ${fmtDia(dia)} (ranking por neto = Libera − Deteriora)`;
+  mth.innerHTML='<tr>'+['#','Cobrador','Días con cambios','🟢 Libera mes','🔵 Mantiene mes','🔴 Deteriora mes','➕ Entran','➖ Salen','Neto'].map(c=>`<th>${c}</th>`).join('')+'</tr>';
+  const T={L:0,M:0,D:0,E:0,X:0};
+  mtb.innerHTML=filas.length?filas.map((f,i)=>{['L','M','D','E','X'].forEach(x=>T[x]+=f[x]);
+    const col=f.neto>0?'var(--mej)':f.neto<0?'var(--emp)':'#555';
+    return `<tr><td style="text-align:center">${i+1}</td><td>${escH(f.c)}</td><td style="text-align:center">${f.dias}</td>
+      <td style="text-align:center;color:var(--mej);font-weight:700">${f.L}</td><td style="text-align:center;color:var(--man);font-weight:700">${f.M}</td>
+      <td style="text-align:center;color:var(--emp);font-weight:700">${f.D}</td><td style="text-align:center">${f.E}</td><td style="text-align:center">${f.X}</td>
+      <td style="text-align:center;color:${col};font-weight:800">${f.neto>0?'+':''}${f.neto}</td></tr>`;}).join('')+
+    `<tr style="font-weight:800;background:#e8f4fd;"><td></td><td>TOTAL</td><td></td><td style="text-align:center">${T.L}</td><td style="text-align:center">${T.M}</td>
+      <td style="text-align:center">${T.D}</td><td style="text-align:center">${T.E}</td><td style="text-align:center">${T.X}</td>
+      <td style="text-align:center">${T.L-T.D>0?'+':''}${T.L-T.D}</td></tr>`
+    :'<tr><td colspan="9">Aún no hay cambios acumulados (se necesita al menos un segundo día procesado en el mes).</td></tr>';
+}
+// Lista de clientes detrás de un número. tipo: L,M,D,O,N,E,X (cambios) o hJ,hM,hD (situación de hoy)
+function segListaClientes(tipo,cobFiltro){
+  const h=segLeer();const mes=document.getElementById('segMes').value;const dia=document.getElementById('segDia').value;
+  const M=h[mes];if(!M||!M.dias[dia]||!M.dias[dia].ids)return null;
+  const day=M.dias[dia],pk=segPrevDia(M,dia),prev=pk?M.dias[pk]:null;
+  const pm=new Map();if(prev)prev.ids.forEach((id,i)=>pm.set(id,i));
+  const out=[];
+  const fila=(id,cob,catAyer,catHoy,ri,dd,sal)=>{const c=(M.cli&&M.cli[id])||[id,'',''];
+    out.push({nombre:c[0],ident:c[1],calM:c[2],cob,ayer:catAyer?SEG_CAT_TXT[catAyer]:'—',hoy:catHoy?SEG_CAT_TXT[catHoy]:'—',
+      rod:ri&&ri!=='-'?SEG_ROD[+ri]:'',dias:dd??'',saldo:sal??0});};
+  if(tipo==='X'){
+    if(!prev)return out;const hs=new Set(day.ids);
+    prev.ids.forEach((id,i)=>{const cob=prev.cobs[prev.cob[i]];if(hs.has(id)||(cobFiltro&&cob!==cobFiltro))return;
+      fila(id,cob,prev.cat[i],null,prev.rod[i],prev.d[i],prev.s[i]);});
+    return out;
+  }
+  day.ids.forEach((id,i)=>{
+    const cob=day.cobs[day.cob[i]];if(cobFiltro&&cob!==cobFiltro)return;
+    const c=day.cat[i],pi=pm.has(id)?pm.get(id):null,cp=pi!==null?prev.cat[pi]:null;
+    let ok=false;
+    if(tipo==='hJ')ok=c==='J';else if(tipo==='hM')ok=c==='M';else if(tipo==='hD')ok=c==='D';
+    else if(tipo==='E')ok=!!prev&&pi===null;
+    else if(pi!==null){
+      if(tipo==='N')ok=cp===c;
+      else if(cp!==c)ok=(tipo==='L'&&c==='J')||(tipo==='M'&&c==='M')||(tipo==='D'&&c==='D')||(tipo==='O'&&c==='S');
+    }
+    if(ok)fila(id,cob,cp,c,day.rod[i],day.d[i],day.s[i]);
+  });
+  return out;
+}
+function segVerLista(tipo,cob){
+  const lst=segListaClientes(tipo,cob);
+  const wrap=document.getElementById('segListaWrap');wrap.style.display='';
+  const nombreTipo={L:'Pasan a Libera',M:'Pasan a Mantiene',D:'Pasan a Deteriora',O:'Pasan a Sin Clasificar',N:'Sin cambio',E:'Entran al listado',X:'Salen del listado',
+    hJ:'En Libera hoy',hM:'En Mantiene hoy',hD:'En Deteriora hoy'}[tipo]||tipo;
+  const dia=document.getElementById('segDia').value;
+  document.getElementById('segListaTit').textContent=`${cob||'TOTAL'} · ${nombreTipo} · ${fmtDia(dia)}`+(lst?` (${lst.length})`:'');
+  const th=document.querySelector('#segLista thead'),tb=document.querySelector('#segLista tbody');
+  th.innerHTML='<tr>'+['Cliente','Identificación','Cobrador','Cal. Mensual','Ayer','Hoy','Cal. Real','Días (HOY)','Saldo Crédito'].map(c=>`<th>${c}</th>`).join('')+'</tr>';
+  if(!lst){tb.innerHTML=`<tr><td colspan="9">El detalle cliente a cliente de este día ya no está guardado (solo se conservan los últimos ${SEG_DIAS_DETALLE} días procesados). Los conteos sí están en la tabla.</td></tr>`;return;}
+  const col=t=>t==='Libera'?'var(--mej)':t==='Deteriora'?'var(--emp)':t==='Mantiene'?'var(--man)':'#555';
+  tb.innerHTML=lst.length?lst.sort((a,b)=>a.cob.localeCompare(b.cob)||a.nombre.localeCompare(b.nombre)).map(r=>`<tr>
+    <td>${escH(r.nombre)}</td><td>${escH(r.ident)}</td><td>${escH(r.cob)}</td><td style="text-align:center">${escH(r.calM)}</td>
+    <td style="color:${col(r.ayer)};font-weight:700">${r.ayer}</td><td style="color:${col(r.hoy)};font-weight:700">${r.hoy}</td>
+    <td style="text-align:center">${r.rod}</td><td style="text-align:center">${r.dias}</td><td style="text-align:right">${money(r.saldo)}</td></tr>`).join('')
+    :'<tr><td colspan="9">Sin clientes.</td></tr>';
+  wrap.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+function segExcel(){
+  const h=segLeer();const mes=document.getElementById('segMes').value;const dia=document.getElementById('segDia').value;
+  if(!h[mes]||!h[mes].dias[dia]){alert('No hay datos para exportar.');return;}
+  const day=h[mes].dias[dia];const conteo=segConteoHoy(day)||{};
+  const cobs=[...new Set([...Object.keys(conteo),...Object.keys(day.mov||{})])].sort((a,b)=>a.localeCompare(b));
+  const r1=cobs.map(c=>{const m=(day.mov||{})[c]||{},ct=conteo[c]||{};
+    return {'Fecha':fmtDia(dia),'Cobrador':c,'Clientes hoy':ct.n||0,'Pasan a Libera':m.L||0,'Pasan a Mantiene':m.M||0,'Pasan a Deteriora':m.D||0,
+      'Pasan a Sin Clasif.':m.O||0,'Sin cambio':m.N||0,'Entran':m.E||0,'Salen':m.X||0,'Hoy Libera':ct.J||0,'Hoy Mantiene':ct.M||0,'Hoy Deteriora':ct.D||0};});
+  const wb=XLSX.utils.book_new();
+  const ws1=XLSX.utils.json_to_sheet(r1);ws1['!cols']=[12,40,12,14,16,16,16,11,9,9,11,13,13].map(w=>({wch:w}));
+  XLSX.utils.book_append_sheet(wb,ws1,'Cambios '+fmtDia(dia).slice(0,5).replace('/','-'));
+  const det=[];['L','M','D','O','E','X'].forEach(t=>{(segListaClientes(t,null)||[]).forEach(r=>det.push({
+    'Movimiento':{L:'Pasa a Libera',M:'Pasa a Mantiene',D:'Pasa a Deteriora',O:'Pasa a Sin Clasif.',E:'Entra',X:'Sale'}[t],
+    'Cobrador':r.cob,'Cliente':r.nombre,'Identificación':r.ident,'Cal. Mensual':r.calM,'Ayer':r.ayer,'Hoy':r.hoy,'Cal. Real':r.rod,'Días (HOY)':r.dias,'Saldo Crédito':r.saldo}));});
+  const ws2=XLSX.utils.json_to_sheet(det.length?det:[{'Movimiento':'Sin cambios (o día base)'}]);
+  ws2['!cols']=[18,40,40,16,12,12,12,10,11,14].map(w=>({wch:w}));
+  XLSX.utils.book_append_sheet(wb,ws2,'Clientes que cambian');
+  XLSX.writeFile(wb,`SEGUIMIENTO_${equipoActual().id}_${dia.replace(/-/g,'')}.xlsx`);
+}
+function segExport(){
+  const h=segLeer();if(!Object.keys(h).length){alert('No hay seguimiento para respaldar.');return;}
+  const blob=new Blob([JSON.stringify(h)],{type:'application/json'});const a=document.createElement('a');const d=new Date();
+  a.href=URL.createObjectURL(blob);
+  a.download=`respaldo_seguimiento_${equipoActual().id}_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.json`;
+  a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+function segImport(file){
+  if(!file)return;const rd=new FileReader();
+  rd.onload=e=>{
+    let inc;try{inc=JSON.parse(e.target.result);}catch(err){alert('El archivo no es un respaldo válido.');return;}
+    const h=segLeer();let n=0;
+    Object.entries(inc||{}).forEach(([mes,v])=>{
+      if(!/^\d{4}-\d{2}$/.test(mes)||!v||!v.dias)return;
+      if(!h[mes])h[mes]={corte:v.corte||'',cli:{},dias:{}};
+      Object.assign(h[mes].cli=h[mes].cli||{},v.cli||{});
+      Object.entries(v.dias).forEach(([dd,x])=>{if(x){h[mes].dias[dd]=x;n++;}});
+    });
+    if(segEscribir(h)){segInit();alert('Restaurados '+n+' días al seguimiento.');}
+  };
+  rd.readAsText(file);
+}
+// ── Enganches (sin tocar las funciones originales) ──
+(function(){
+  const _histGuardarDia=histGuardarDia;
+  histGuardarDia=function(data){_histGuardarDia(data);try{segGuardarDia(data);}catch(e){console.error(e);}};
+  const _histInit=histInit;
+  histInit=function(...a){_histInit(...a);try{segInit();}catch(e){console.error(e);}};
+  segInit();
+})();
 </script>
 </body>
 </html>
