@@ -266,6 +266,20 @@ const MESES=['enero','febrero','marzo','abril','mayo','junio','julio','agosto',
 // Fecha de corte automática: último día del mes actual (según la fecha del equipo).
 // Ej.: en octubre 2026 → 31/10/2026; en noviembre 2026 → 30/11/2026.
 const _HOY_LOCAL=new Date();
+// Cobradores que se incluyen al procesar (los demás se excluyen).
+// La comparación ignora tildes/Ñ, mayúsculas, espacios dobles y el orden de nombres/apellidos.
+const COBRADORES_PERMITIDOS=[
+  'VILLARREAL NAVARRETE FAUSTO ALBERTO','MOSQUERA MEDINA HECTOR DANIEL','BRYAN EDUARDO PAREDES PERALTA',
+  'AVILES ABAD JORDY ALEXANDER','AGUILAR CONTRERAS BYRON LUIS','ORTEGA URGILES CELIO ISAIAS',
+  'OLAYA ACURIO JOSE GABRIEL','GUILLERMO MONTANO LUIS AGUSTIN','CARRANZA JIMENEZ FRANKLIN GEOVANNY',
+  'MILLAN CARVAJAL RAFAEL ENRIQUE','GONZALEZ CORTEZ ADOLFO MODESTO','CHAVEZ GOMEZCUELLO MARIO JAVIER',
+  'MENDOZA JIMENEZ VICTOR DARIO','JARA LLIGUIN JULIO LEONARDO'
+];
+function claveCobrador(v){
+  return String(v??'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase()
+    .replace(/[^A-Z ]/g,' ').split(/\s+/).filter(Boolean).sort().join(' ');
+}
+const COB_PERMITIDOS_KEYS=new Map(COBRADORES_PERMITIDOS.map(n=>[claveCobrador(n),n]));
 const FECHA_CORTE_UTC=Date.UTC(_HOY_LOCAL.getFullYear(),_HOY_LOCAL.getMonth()+1,0); // día 0 del mes siguiente = último día del mes actual
 document.addEventListener('DOMContentLoaded',()=>{
   const c=new Date(FECHA_CORTE_UTC);
@@ -311,7 +325,7 @@ const OUT_COLS=[
   'Nombre del Cliente','Número de Identificación','Dirección Principal','Teléfono Celular',
   'Zona del Cliente Final','Nombre del Cobrador Actual',
   'Calificación Cliente Mensual','Calificación Cliente Diaria','HOY','Calificación Real Afectación',
-  'Fecha de Vencimiento Inicial','Fecha de Vencimiento Final Más Antigua','Suma Saldo Cuota (Fecha Antigua)',
+  'Fecha de Vencimiento Inicial','Fecha de Vencimiento Final Más Antigua','Día Venc. Final','Mes Venc. Final','Año Venc. Final','Suma Saldo Cuota (Fecha Antigua)',
   'Suma Saldo Crédito Final Total','Suma Valor Cuota Total',
   'Calificación Concatenada','Categoría del Cliente','Categoría Cliente Rodamiento'
 ];
@@ -591,7 +605,11 @@ function processData(){
     const selLinea=getSelChk('chk-linea');
     const selCalm=getSelChk('chk-calm');
 
+    const cobEncontrados=new Set();
     const filtered=rawData.filter(r=>{
+      const kc=claveCobrador(r['Nombre Cobrador Actual']);
+      if(!COB_PERMITIDOS_KEYS.has(kc))return false;
+      cobEncontrados.add(kc);
       const i=toYMD(parseDate(r['Fecha Vencimiento Inicial']));
       const f=toYMD(parseDate(r['Fecha Vencimiento Final']));
       const ori=r['Origen Factura']?r['Origen Factura'].toString().trim():'(Sin Origen)';
@@ -612,6 +630,8 @@ function processData(){
         &&passCalm;
     });
 
+    const cobFaltan=[...COB_PERMITIDOS_KEYS.keys()].filter(k=>!cobEncontrados.has(k)).map(k=>COB_PERMITIDOS_KEYS.get(k));
+    const cobAviso=cobFaltan.length?` · ⚠️ ${cobFaltan.length} cobrador(es) sin filas: ${cobFaltan.join(', ')}`:'';
     setProgress(30,'Agrupando… ('+filtered.length.toLocaleString()+' filas)');
     setTimeout(()=>{
       const clients={};
@@ -666,6 +686,9 @@ function processData(){
             'Calificación Real Afectación':calRod,
             'Fecha de Vencimiento Inicial':c.min_fecha_ini?toDMY(c.min_fecha_ini):'',
             'Fecha de Vencimiento Final Más Antigua':c.min_fecha?toDMY(c.min_fecha):'',
+            'Día Venc. Final':c.min_fecha?c.min_fecha.getUTCDate():'',
+            'Mes Venc. Final':c.min_fecha?c.min_fecha.getUTCMonth()+1:'',
+            'Año Venc. Final':c.min_fecha?c.min_fecha.getUTCFullYear():'',
             'Suma Saldo Cuota (Fecha Antigua)':+sumaCuota.toFixed(2),
             'Suma Saldo Crédito Final Total':+sumaSaldo.toFixed(2),
             'Suma Valor Cuota Total':+sumaValor.toFixed(2),
@@ -709,10 +732,10 @@ function processData(){
           document.getElementById('tableWrap').style.display='';
           renderCobrador(sorted);
           document.getElementById('cobradorWrap').style.display='';
-          histGuardarDia(sorted);
           document.getElementById('btnDownload').style.display='';
           document.getElementById('btnProcess').disabled=false;
-          setProgress(100,'✅ Completado · '+result.length.toLocaleString()+' clientes');
+          setProgress(100,'✅ Completado · '+result.length.toLocaleString()+' clientes · '+cobEncontrados.size+' de '+COB_PERMITIDOS_KEYS.size+' cobradores'+cobAviso);
+          histGuardarDia(sorted);
         },100);
       },100);
     },100);
@@ -721,7 +744,7 @@ function processData(){
 
 // ── TABLE PREVIEW ─────────────────────────────────────────────────────────────
 function renderTable(data){
-  const cols=['Nombre','Identificación','Dirección','Teléfono','Zona','Cobrador','Cal.M','Cal.D','HOY','Cal. Real Afec.','F. Venc. Ini.','F. Venc. Fin.','Saldo Cuota','Saldo Crédito','Valor Cuota','Calif.','Categoría','Cat. Rodamiento'];
+  const cols=['Nombre','Identificación','Dirección','Teléfono','Zona','Cobrador','Cal.M','Cal.D','HOY','Cal. Real Afec.','F. Venc. Ini.','F. Venc. Fin.','Día','Mes','Año','Saldo Cuota','Saldo Crédito','Valor Cuota','Calif.','Categoría','Cat. Rodamiento'];
   document.querySelector('#prevTable thead').innerHTML='<tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr>';
   document.querySelector('#prevTable tbody').innerHTML=data.map(r=>{
     const cat=r['Categoría del Cliente'];
@@ -737,6 +760,9 @@ function renderTable(data){
       <td style="text-align:center">${r['Calificación Real Afectación']}</td>
       <td>${r['Fecha de Vencimiento Inicial']}</td>
       <td>${r['Fecha de Vencimiento Final Más Antigua']}</td>
+      <td style="text-align:center">${r['Día Venc. Final']}</td>
+      <td style="text-align:center">${r['Mes Venc. Final']}</td>
+      <td style="text-align:center">${r['Año Venc. Final']}</td>
       <td style="text-align:right">${r['Suma Saldo Cuota (Fecha Antigua)'].toFixed(2)}</td>
       <td style="text-align:right">${r['Suma Saldo Crédito Final Total'].toFixed(2)}</td>
       <td style="text-align:right">${r['Suma Valor Cuota Total'].toFixed(2)}</td>
@@ -1029,7 +1055,7 @@ function downloadExcel(){
   const ws=XLSX.utils.json_to_sheet(processedData,{header:OUT_COLS});
 
   // Column widths
-  ws['!cols']=[38,22,42,16,38,38,12,12,10,16,18,22,18,18,18,14,16,22].map(w=>({wch:w}));
+  ws['!cols']=[38,22,42,16,38,38,12,12,10,16,18,22,8,8,8,18,18,18,14,16,22].map(w=>({wch:w}));
 
   // Styles via SheetJS — add fill colors per row
   const rng=XLSX.utils.decode_range(ws['!ref']);
