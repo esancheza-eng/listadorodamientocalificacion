@@ -930,7 +930,7 @@ function renderCobrador(data){
     paintCalmChips();
   }
   const rows=buildCobradorRows(cobDataFiltrado());
-  const cols=['Cobrador Actual','Clientes','Saldo Crédito Total','Mantiene','Deteriora','Mejora','Sin Clasificar'];
+  const cols=['Cobrador Actual','Clientes','Saldo Crédito Total','Mantiene','Deteriora','Mejora'];
   document.querySelector('#cobradorTable thead').innerHTML='<tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr>';
   document.querySelector('#cobradorTable tbody').innerHTML=rows.map(o=>{
     const bold=o.cobrador==='TOTAL'?'font-weight:800;background:#e8f4fd;':'';
@@ -940,8 +940,7 @@ function renderCobrador(data){
       <td style="text-align:right">${money(o.saldo)}</td>
       <td style="text-align:center">${cellCat(o,'Mantiene',cobVista)}</td>
       <td style="text-align:center">${cellCat(o,'Deteriora',cobVista)}</td>
-      <td style="text-align:center">${cellCat(o,'Mejora',cobVista)}</td>
-      <td style="text-align:center">${cellCat(o,'Sin Clasificar',cobVista)}</td></tr>`;
+      <td style="text-align:center">${cellCat(o,'Mejora',cobVista)}</td></tr>`;
   }).join('');
 }
 
@@ -1049,14 +1048,13 @@ function renderHist(){
   vacio.textContent='';
   const dias=Object.keys(h[mes].dias).sort();
   const detalle=sel==='__ALL__';
-  thead.innerHTML='<tr>'+['Fecha','Hora',...(detalle?['Cobrador']:[]),'Clientes','Mantiene','Deteriora','Mejora','Sin Clasif.','Saldo Crédito','% Saldo Deteriora',''].map(c=>`<th>${c}</th>`).join('')+'</tr>';
+  thead.innerHTML='<tr>'+['Fecha','Hora',...(detalle?['Cobrador']:[]),'Clientes','Mantiene','Deteriora','Mejora','Saldo Crédito','% Saldo Deteriora',''].map(c=>`<th>${c}</th>`).join('')+'</tr>';
   const fila=(dia,hora,nombre,o,ant,bold,borrar)=>`<tr style="${bold?'font-weight:800;background:#e8f4fd;':''}">
       <td>${fmtDia(dia)}</td><td>${hora}</td>${detalle?`<td>${escH(nombre)}</td>`:''}
       <td style="text-align:center">${o.c.toLocaleString()}${deltaHtml(o.c,ant&&ant.c)}</td>
       <td style="text-align:center">${o.M[0].toLocaleString()}${deltaHtml(o.M[0],ant&&ant.M[0],'M')}</td>
       <td style="text-align:center">${o.D[0].toLocaleString()}${deltaHtml(o.D[0],ant&&ant.D[0],'D')}</td>
       <td style="text-align:center">${o.J[0].toLocaleString()}${deltaHtml(o.J[0],ant&&ant.J[0],'J')}</td>
-      <td style="text-align:center">${o.S[0].toLocaleString()}${deltaHtml(o.S[0],ant&&ant.S[0],'S')}</td>
       <td style="text-align:right">${money(o.s)}</td>
       <td style="text-align:center">${pct(o.D[1],o.s)}</td>
       <td>${borrar?`<span class="lnk" title="Borrar este día" onclick="histBorrarDia('${mes}','${dia}')">🗑️</span>`:''}</td></tr>`;
@@ -1106,7 +1104,7 @@ function histExcel(){
   const filas=[];
   const fx=(dia,hora,n,o)=>({'Fecha':fmtDia(dia),'Hora':hora,'Cobrador':n,'Clientes':o.c,'Saldo Crédito':o.s,
     'Mantiene Clientes':o.M[0],'Mantiene Saldo':o.M[1],'Deteriora Clientes':o.D[0],'Deteriora Saldo':o.D[1],
-    'Mejora Clientes':o.J[0],'Mejora Saldo':o.J[1],'Sin Clasificar Clientes':o.S[0],'% Saldo Deteriora':pct(o.D[1],o.s)});
+    'Mejora Clientes':o.J[0],'Mejora Saldo':o.J[1],'% Saldo Deteriora':pct(o.D[1],o.s)});
   Object.keys(h[mes].dias).sort().forEach(dia=>{
     const d=h[mes].dias[dia];
     Object.keys(d.cob).sort((a,b)=>a.localeCompare(b)).forEach(n=>filas.push(fx(dia,d.hora,n,d.cob[n])));
@@ -1114,7 +1112,7 @@ function histExcel(){
   });
   const wb=XLSX.utils.book_new();
   const ws=XLSX.utils.json_to_sheet(filas);
-  ws['!cols']=[12,7,40,10,16,10,14,10,14,10,14,12,12].map(w=>({wch:w}));
+  ws['!cols']=[12,7,40,10,16,10,14,10,14,10,14,12].map(w=>({wch:w}));
   XLSX.utils.book_append_sheet(wb,ws,'Historial '+mes);
   XLSX.writeFile(wb,`HISTORIAL_RODAMIENTO_${equipoActual().id}_${mes.replace('-','')}.xlsx`);
 }
@@ -1219,7 +1217,7 @@ const SEG_CAT={Mantiene:'M',Deteriora:'D',Mejora:'J','Sin Clasificar':'S'};
 const SEG_CAT_TXT={M:'Mantiene',D:'Deteriora',J:'Libera',S:'Sin Clasif.'};
 const SEG_ROD=['AA','A','B','C','D','E','E1','E2'];
 const SEG_TIPOS=[['L','🟢 Pasan a Libera','var(--mej)'],['M','🔵 Pasan a Mantiene','var(--man)'],['D','🔴 Pasan a Deteriora','var(--emp)'],
-                 ['O','Pasan a Sin Clasif.','#888'],['N','⚪ Sin cambio','#555'],['E','➕ Entran','#555'],['X','➖ Salen','#555']];
+                 ['N','⚪ Sin cambio','#555'],['E','➕ Entran','#555'],['X','➖ Salen','#555']];
 function segKey(){const id=equipoActual().id;return 'rodamientoSeguimiento_v1__'+id;}
 function segLeer(){try{const t=localStorage.getItem(segKey());return t?JSON.parse(t):{};}catch(e){return {};}}
 function segEscribir(h){
@@ -1432,11 +1430,11 @@ function segExcel(){
   const cobs=[...new Set([...Object.keys(conteo),...Object.keys(day.mov||{})])].sort((a,b)=>a.localeCompare(b));
   const r1=cobs.map(c=>{const m=(day.mov||{})[c]||{},ct=conteo[c]||{};
     return {'Fecha':fmtDia(dia),'Cobrador':c,'Clientes hoy':ct.n||0,'Pasan a Libera':m.L||0,'Pasan a Mantiene':m.M||0,'Pasan a Deteriora':m.D||0,
-      'Pasan a Sin Clasif.':m.O||0,'Sin cambio':m.N||0,'Entran':m.E||0,'Salen':m.X||0,'Hoy Libera':ct.J||0,'Hoy Mantiene':ct.M||0,'Hoy Deteriora':ct.D||0};});
+      'Sin cambio':m.N||0,'Entran':m.E||0,'Salen':m.X||0,'Hoy Libera':ct.J||0,'Hoy Mantiene':ct.M||0,'Hoy Deteriora':ct.D||0};});
   const wb=XLSX.utils.book_new();
-  const ws1=XLSX.utils.json_to_sheet(r1);ws1['!cols']=[12,40,12,14,16,16,16,11,9,9,11,13,13].map(w=>({wch:w}));
+  const ws1=XLSX.utils.json_to_sheet(r1);ws1['!cols']=[12,40,12,14,16,16,11,9,9,11,13,13].map(w=>({wch:w}));
   XLSX.utils.book_append_sheet(wb,ws1,'Cambios '+fmtDia(dia).slice(0,5).replace('/','-'));
-  const det=[];['L','M','D','O','E','X'].forEach(t=>{(segListaClientes(t,null)||[]).forEach(r=>det.push({
+  const det=[];['L','M','D','E','X'].forEach(t=>{(segListaClientes(t,null)||[]).forEach(r=>det.push({
     'Movimiento':{L:'Pasa a Libera',M:'Pasa a Mantiene',D:'Pasa a Deteriora',O:'Pasa a Sin Clasif.',E:'Entra',X:'Sale'}[t],
     'Cobrador':r.cob,'Cliente':r.nombre,'Identificación':r.ident,'Cal. Mensual':r.calM,'Ayer':r.ayer,'Hoy':r.hoy,'Cal. Real':r.rod,'Días (HOY)':r.dias,'Saldo Crédito':r.saldo}));});
   const ws2=XLSX.utils.json_to_sheet(det.length?det:[{'Movimiento':'Sin cambios (o día base)'}]);
