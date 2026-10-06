@@ -115,6 +115,12 @@
       </label>
       <span id="equipoInfo" style="font-size:.78rem;color:var(--mut);"></span>
     </div>
+    <div class="btn-row" style="margin-top:10px;">
+      <label style="font-size:.85rem;font-weight:700;color:var(--primary);">📅 Fecha de los datos
+        <input type="date" id="fechaDatos" class="chk-search" style="width:auto;margin:0 0 0 8px;font-size:.85rem;"/>
+      </label>
+      <span style="font-size:.78rem;color:var(--mut);">Día al que corresponde el archivo (se guarda en el historial con esta fecha). Por defecto, hoy.</span>
+    </div>
   </div>
 
   <!-- 2. FILTERS -->
@@ -944,6 +950,13 @@ function renderCobrador(data){
 function histKey(){const id=equipoActual().id;return id==='MILAGRO'?'rodamientoHistorial_v1':'rodamientoHistorial_v1__'+id;}
 const HIST_CATS=[['M','Mantiene'],['D','Deteriora'],['J','Mejora'],['S','Sin Clasificar']];
 function escH(v){return String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
+function hoyKey(){const a=new Date();return `${a.getFullYear()}-${String(a.getMonth()+1).padStart(2,'0')}-${String(a.getDate()).padStart(2,'0')}`;}
+function fechaDatosKey(){
+  const el=document.getElementById('fechaDatos');
+  const v=el&&el.value;
+  return /^\d{4}-\d{2}-\d{2}$/.test(v||'')?v:hoyKey();
+}
+function initFechaDatos(){const el=document.getElementById('fechaDatos');if(el){el.max=hoyKey();if(!el.value)el.value=hoyKey();}}
 function histLeer(){
   try{const t=localStorage.getItem(histKey());return t?JSON.parse(t):{};}catch(e){return {};}
 }
@@ -959,7 +972,7 @@ function histMesCorte(){
 function histGuardarDia(data){
   if(!data||!data.length)return;
   const ahora=new Date();
-  const dia=`${ahora.getFullYear()}-${String(ahora.getMonth()+1).padStart(2,'0')}-${String(ahora.getDate()).padStart(2,'0')}`;
+  const dia=fechaDatosKey();
   const hora=`${String(ahora.getHours()).padStart(2,'0')}:${String(ahora.getMinutes()).padStart(2,'0')}`;
   const cob={};
   buildCobradorRows(data).forEach(o=>{
@@ -1191,6 +1204,7 @@ function downloadExcel(){
   XLSX.writeFile(wb,`CLIENTES_PROCESADOS_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.xlsx`,{bookSST:false,type:'binary',cellStyles:true});
 }
 initEquipos();
+initFechaDatos();
 histInit();
 </script>
 <script>
@@ -1236,7 +1250,7 @@ function segCalcMov(prev,hoy){
 function segGuardarDia(data){
   if(!data||!data.length)return;
   const ahora=new Date();
-  const dia=`${ahora.getFullYear()}-${String(ahora.getMonth()+1).padStart(2,'0')}-${String(ahora.getDate()).padStart(2,'0')}`;
+  const dia=fechaDatosKey();
   const hora=`${String(ahora.getHours()).padStart(2,'0')}:${String(ahora.getMinutes()).padStart(2,'0')}`;
   const mc=histMesCorte();
   const h=segLeer();
