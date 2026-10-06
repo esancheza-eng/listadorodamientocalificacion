@@ -94,7 +94,7 @@
   <div class="logo">📊</div>
   <div>
     <h1>Procesador de Clientes Marcimex</h1>
-    <p>Corte: 30/09/2026 vs Fecha Vencimiento Final más antigua</p>
+    <p>Corte: <span id="lblCorte">--/--/----</span> vs Fecha Vencimiento Final más antigua</p>
   </div>
 </header>
 <main>
@@ -230,6 +230,30 @@
     </div>
   </div>
 
+  <!-- 5. HISTORIAL DIARIO -->
+  <div class="card" id="histCard">
+    <div class="card-title">5 · Historial diario de rodamiento por cobrador</div>
+    <div style="font-size:.78rem;color:var(--mut);margin-bottom:12px;">
+      Cada vez que procesas se guarda el resultado del día (si procesas varias veces el mismo día, queda el último).
+      Se agrupa por mes de corte. Se guarda en este navegador: usa <b>Respaldo</b> para no perderlo o pasarlo a otra PC.
+    </div>
+    <div class="btn-row" style="margin-bottom:12px;">
+      <label style="font-size:.8rem;font-weight:700;color:var(--primary);">Mes
+        <select id="histMes" class="chk-search" style="width:auto;margin:0 0 0 6px;" onchange="histCobOpciones();renderHist()"></select>
+      </label>
+      <label style="font-size:.8rem;font-weight:700;color:var(--primary);">Cobrador
+        <select id="histCob" class="chk-search" style="width:auto;max-width:320px;margin:0 0 0 6px;" onchange="renderHist()"></select>
+      </label>
+      <button class="btn btn-s" style="padding:7px 14px;font-size:.8rem" onclick="histExcel()">⬇️ Excel del mes</button>
+      <button class="btn btn-p" style="padding:7px 14px;font-size:.8rem" onclick="histExport()">💾 Respaldo</button>
+      <button class="btn btn-p" style="padding:7px 14px;font-size:.8rem" onclick="document.getElementById('histFile').click()">📂 Restaurar</button>
+      <input type="file" id="histFile" accept=".json" style="display:none" onchange="histImport(this.files[0]);this.value=''"/>
+    </div>
+    <div id="histResumen" class="kpis" style="margin-bottom:12px;"></div>
+    <div class="tbl-wrap"><table id="histTable"><thead></thead><tbody></tbody></table></div>
+    <div id="histVacio" style="font-size:.82rem;color:var(--mut);margin-top:8px;"></div>
+  </div>
+
 </main>
 <script>
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
@@ -239,7 +263,15 @@ const MEJORA  =new Set(['AA.AA','A.AA','B.AA','B.A','C.AA','C.A','C.B','D.AA','D
   'E.AA','E.A','E.B','E.C','E.D','E1.AA','E1.A','E1.B','E1.C','E1.D','E1.E']);
 const MESES=['enero','febrero','marzo','abril','mayo','junio','julio','agosto',
              'septiembre','octubre','noviembre','diciembre'];
-const FECHA_CORTE_UTC=Date.UTC(2026,8,30); // 30/09/2026
+// Fecha de corte automática: último día del mes actual (según la fecha del equipo).
+// Ej.: en octubre 2026 → 31/10/2026; en noviembre 2026 → 30/11/2026.
+const _HOY_LOCAL=new Date();
+const FECHA_CORTE_UTC=Date.UTC(_HOY_LOCAL.getFullYear(),_HOY_LOCAL.getMonth()+1,0); // día 0 del mes siguiente = último día del mes actual
+document.addEventListener('DOMContentLoaded',()=>{
+  const c=new Date(FECHA_CORTE_UTC);
+  const el=document.getElementById('lblCorte');
+  if(el)el.textContent=`${String(c.getUTCDate()).padStart(2,'0')}/${String(c.getUTCMonth()+1).padStart(2,'0')}/${c.getUTCFullYear()}`;
+});
 function ymdParts(d){
   return {y:d.getUTCFullYear(),m:d.getUTCMonth(),day:d.getUTCDate()};
 }
@@ -677,6 +709,7 @@ function processData(){
           document.getElementById('tableWrap').style.display='';
           renderCobrador(sorted);
           document.getElementById('cobradorWrap').style.display='';
+          histGuardarDia(sorted);
           document.getElementById('btnDownload').style.display='';
           document.getElementById('btnProcess').disabled=false;
           setProgress(100,'✅ Completado · '+result.length.toLocaleString()+' clientes');
@@ -797,6 +830,198 @@ function renderCobrador(data){
   }).join('');
 }
 
+// ── HISTORIAL DIARIO (guardado en este navegador) ────────────────────────────
+// Estructura: { "AAAA-MM": { corte:"dd/mm/aaaa", dias:{ "AAAA-MM-DD": { hora:"hh:mm", cob:{ nombre:{c,s,M:[n,s],D:[n,s],J:[n,s],S:[n,s]} } } } } }
+const HIST_KEY='rodamientoHistorial_v1';
+const HIST_CATS=[['M','Mantiene'],['D','Deteriora'],['J','Mejora'],['S','Sin Clasificar']];
+function escH(v){return String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
+function histLeer(){
+  try{const t=localStorage.getItem(HIST_KEY);return t?JSON.parse(t):{};}catch(e){return {};}
+}
+function histEscribir(h){
+  try{localStorage.setItem(HIST_KEY,JSON.stringify(h));return true;}
+  catch(e){alert('No se pudo guardar el historial en este navegador. Descarga un Respaldo.');return false;}
+}
+function histMesCorte(){
+  const c=new Date(FECHA_CORTE_UTC);
+  return {key:`${c.getUTCFullYear()}-${String(c.getUTCMonth()+1).padStart(2,'0')}`,
+          txt:`${String(c.getUTCDate()).padStart(2,'0')}/${String(c.getUTCMonth()+1).padStart(2,'0')}/${c.getUTCFullYear()}`};
+}
+function histGuardarDia(data){
+  if(!data||!data.length)return;
+  const ahora=new Date();
+  const dia=`${ahora.getFullYear()}-${String(ahora.getMonth()+1).padStart(2,'0')}-${String(ahora.getDate()).padStart(2,'0')}`;
+  const hora=`${String(ahora.getHours()).padStart(2,'0')}:${String(ahora.getMinutes()).padStart(2,'0')}`;
+  const cob={};
+  buildCobradorRows(data).forEach(o=>{
+    if(o.cobrador==='TOTAL')return;
+    cob[o.cobrador]={c:o.clientes,s:+o.saldo.toFixed(2),
+      M:[o.Mantiene.n,+o.Mantiene.s.toFixed(2)],D:[o.Deteriora.n,+o.Deteriora.s.toFixed(2)],
+      J:[o.Mejora.n,+o.Mejora.s.toFixed(2)],S:[o['Sin Clasificar'].n,+o['Sin Clasificar'].s.toFixed(2)]};
+  });
+  const mc=histMesCorte();
+  const h=histLeer();
+  if(!h[mc.key])h[mc.key]={corte:mc.txt,dias:{}};
+  h[mc.key].corte=mc.txt;
+  h[mc.key].dias[dia]={hora,cob};
+  if(histEscribir(h)){
+    histInit(mc.key);
+    const s=document.getElementById('statusMsg');
+    if(s)s.textContent+=' · 💾 Guardado en historial ('+dia.split('-').reverse().join('/')+')';
+  }
+}
+function histSumar(cobMap,soloCob){
+  const t={c:0,s:0,M:[0,0],D:[0,0],J:[0,0],S:[0,0]};
+  Object.entries(cobMap).forEach(([k,o])=>{
+    if(soloCob&&k!==soloCob)return;
+    t.c+=o.c;t.s+=o.s;
+    HIST_CATS.forEach(([x])=>{t[x][0]+=o[x][0];t[x][1]+=o[x][1];});
+  });
+  return t;
+}
+function histInit(mesSel){
+  const h=histLeer();
+  const sm=document.getElementById('histMes');if(!sm)return;
+  const meses=Object.keys(h).sort().reverse();
+  const actual=mesSel||sm.value||meses[0];
+  sm.innerHTML=meses.length?meses.map(m=>{
+    const [y,mm]=m.split('-');
+    return `<option value="${m}" ${m===actual?'selected':''}>${MESES[+mm-1]} ${y} · corte ${escH(h[m].corte)}</option>`;
+  }).join(''):'<option value="">(sin historial)</option>';
+  histCobOpciones();
+  renderHist();
+}
+function histCobOpciones(){
+  const h=histLeer();const mes=document.getElementById('histMes').value;
+  const sc=document.getElementById('histCob');const prev=sc.value||'__TOTAL__';
+  const nombres=new Set();
+  if(h[mes])Object.values(h[mes].dias).forEach(d=>Object.keys(d.cob).forEach(n=>nombres.add(n)));
+  const lista=[...nombres].sort((a,b)=>a.localeCompare(b));
+  sc.innerHTML=`<option value="__TOTAL__">TOTAL (todos los cobradores)</option><option value="__ALL__">Detalle de cada cobrador</option>`+
+    lista.map(n=>`<option value="${escH(n)}">${escH(n)}</option>`).join('');
+  sc.value=[...sc.options].some(o=>o.value===prev)?prev:'__TOTAL__';
+}
+function deltaHtml(act,ant,tipo){
+  if(ant===null||ant===undefined)return '';
+  const d=act-ant;if(d===0)return ' <span style="color:#999;font-size:.7rem">(=)</span>';
+  // Deteriora: subir es malo. Mejora: subir es bueno. Mantiene/Sin clasif: neutro.
+  let col='#555';
+  if(tipo==='D')col=d>0?'var(--emp)':'var(--mej)';
+  if(tipo==='J')col=d>0?'var(--mej)':'var(--emp)';
+  return ` <span style="color:${col};font-size:.7rem;font-weight:700">(${d>0?'+':''}${d})</span>`;
+}
+function fmtDia(d){return d.split('-').reverse().join('/');}
+function renderHist(){
+  const h=histLeer();
+  const sm=document.getElementById('histMes');
+  const mes=sm.value;
+  const sel=document.getElementById('histCob').value||'__TOTAL__';
+  const thead=document.querySelector('#histTable thead'),tbody=document.querySelector('#histTable tbody');
+  const vacio=document.getElementById('histVacio'),kp=document.getElementById('histResumen');
+  if(!h[mes]||!Object.keys(h[mes].dias).length){
+    thead.innerHTML='';tbody.innerHTML='';kp.innerHTML='';
+    vacio.textContent='Aún no hay días guardados. Procesa un archivo y el resultado del día se guardará aquí automáticamente.';
+    return;
+  }
+  vacio.textContent='';
+  const dias=Object.keys(h[mes].dias).sort();
+  const detalle=sel==='__ALL__';
+  thead.innerHTML='<tr>'+['Fecha','Hora',...(detalle?['Cobrador']:[]),'Clientes','Mantiene','Deteriora','Mejora','Sin Clasif.','Saldo Crédito','% Saldo Deteriora',''].map(c=>`<th>${c}</th>`).join('')+'</tr>';
+  const fila=(dia,hora,nombre,o,ant,bold,borrar)=>`<tr style="${bold?'font-weight:800;background:#e8f4fd;':''}">
+      <td>${fmtDia(dia)}</td><td>${hora}</td>${detalle?`<td>${escH(nombre)}</td>`:''}
+      <td style="text-align:center">${o.c.toLocaleString()}${deltaHtml(o.c,ant&&ant.c)}</td>
+      <td style="text-align:center">${o.M[0].toLocaleString()}${deltaHtml(o.M[0],ant&&ant.M[0],'M')}</td>
+      <td style="text-align:center">${o.D[0].toLocaleString()}${deltaHtml(o.D[0],ant&&ant.D[0],'D')}</td>
+      <td style="text-align:center">${o.J[0].toLocaleString()}${deltaHtml(o.J[0],ant&&ant.J[0],'J')}</td>
+      <td style="text-align:center">${o.S[0].toLocaleString()}${deltaHtml(o.S[0],ant&&ant.S[0],'S')}</td>
+      <td style="text-align:right">${money(o.s)}</td>
+      <td style="text-align:center">${pct(o.D[1],o.s)}</td>
+      <td>${borrar?`<span class="lnk" title="Borrar este día" onclick="histBorrarDia('${mes}','${dia}')">🗑️</span>`:''}</td></tr>`;
+  let html='';
+  if(detalle){
+    dias.forEach((dia,i)=>{
+      const d=h[mes].dias[dia],prevD=i>0?h[mes].dias[dias[i-1]]:null;
+      Object.keys(d.cob).sort((a,b)=>a.localeCompare(b)).forEach(n=>{
+        html+=fila(dia,d.hora,n,d.cob[n],prevD&&prevD.cob[n]?prevD.cob[n]:null,false,false);
+      });
+      html+=fila(dia,d.hora,'TOTAL',histSumar(d.cob),prevD?histSumar(prevD.cob):null,true,true);
+    });
+  }else{
+    const soloCob=sel==='__TOTAL__'?null:sel;
+    let ant=null;
+    dias.forEach(dia=>{
+      const d=h[mes].dias[dia];
+      if(soloCob&&!d.cob[soloCob]){ant=null;return;}
+      const o=histSumar(d.cob,soloCob);
+      html+=fila(dia,d.hora,'',o,ant,false,!soloCob);
+      ant=o;
+    });
+  }
+  tbody.innerHTML=html||'<tr><td colspan="11">Sin registros para este cobrador en el mes.</td></tr>';
+  // KPIs: último día guardado vs primer día del mes
+  const soloCob=(sel==='__TOTAL__'||detalle)?null:sel;
+  const conDato=dias.filter(dd=>!soloCob||h[mes].dias[dd].cob[soloCob]);
+  if(!conDato.length){kp.innerHTML='';return;}
+  const ult=histSumar(h[mes].dias[conDato[conDato.length-1]].cob,soloCob);
+  const pri=histSumar(h[mes].dias[conDato[0]].cob,soloCob);
+  const k=(cls,num,lbl,ref)=>`<div class="kpi ${cls}"><div class="num">${num.toLocaleString()}</div><div class="lbl">${lbl}${ref!==undefined&&conDato.length>1?` · inicio mes: ${ref.toLocaleString()}`:''}</div></div>`;
+  kp.innerHTML=k('tot',conDato.length,'Días registrados')+
+    k('tot',ult.c,'Clientes al '+fmtDia(conDato[conDato.length-1]),pri.c)+
+    k('man',ult.M[0],'Mantiene',pri.M[0])+
+    k('emp',ult.D[0],'Deteriora',pri.D[0])+
+    k('mej',ult.J[0],'Mejora',pri.J[0]);
+}
+function histBorrarDia(mes,dia){
+  if(!confirm('¿Borrar del historial el día '+fmtDia(dia)+'?'))return;
+  const h=histLeer();
+  if(h[mes]){delete h[mes].dias[dia];if(!Object.keys(h[mes].dias).length)delete h[mes];}
+  histEscribir(h);histInit(h[mes]?mes:undefined);
+}
+function histExcel(){
+  const h=histLeer();const mes=document.getElementById('histMes').value;
+  if(!h[mes]){alert('No hay historial para exportar.');return;}
+  const filas=[];
+  const fx=(dia,hora,n,o)=>({'Fecha':fmtDia(dia),'Hora':hora,'Cobrador':n,'Clientes':o.c,'Saldo Crédito':o.s,
+    'Mantiene Clientes':o.M[0],'Mantiene Saldo':o.M[1],'Deteriora Clientes':o.D[0],'Deteriora Saldo':o.D[1],
+    'Mejora Clientes':o.J[0],'Mejora Saldo':o.J[1],'Sin Clasificar Clientes':o.S[0],'% Saldo Deteriora':pct(o.D[1],o.s)});
+  Object.keys(h[mes].dias).sort().forEach(dia=>{
+    const d=h[mes].dias[dia];
+    Object.keys(d.cob).sort((a,b)=>a.localeCompare(b)).forEach(n=>filas.push(fx(dia,d.hora,n,d.cob[n])));
+    filas.push(fx(dia,d.hora,'TOTAL',histSumar(d.cob)));
+  });
+  const wb=XLSX.utils.book_new();
+  const ws=XLSX.utils.json_to_sheet(filas);
+  ws['!cols']=[12,7,40,10,16,10,14,10,14,10,14,12,12].map(w=>({wch:w}));
+  XLSX.utils.book_append_sheet(wb,ws,'Historial '+mes);
+  XLSX.writeFile(wb,`HISTORIAL_RODAMIENTO_${mes.replace('-','')}.xlsx`);
+}
+function histExport(){
+  const h=histLeer();
+  if(!Object.keys(h).length){alert('No hay historial para respaldar.');return;}
+  const blob=new Blob([JSON.stringify(h,null,1)],{type:'application/json'});
+  const a=document.createElement('a');const d=new Date();
+  a.href=URL.createObjectURL(blob);
+  a.download=`respaldo_historial_rodamiento_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.json`;
+  a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+function histImport(file){
+  if(!file)return;
+  const r=new FileReader();
+  r.onload=e=>{
+    let inc;
+    try{inc=JSON.parse(e.target.result);}catch(err){alert('El archivo no es un respaldo válido.');return;}
+    if(!inc||typeof inc!=='object'){alert('El archivo no es un respaldo válido.');return;}
+    const h=histLeer();let n=0;
+    Object.entries(inc).forEach(([mes,v])=>{
+      if(!/^\d{4}-\d{2}$/.test(mes)||!v||!v.dias)return;
+      if(!h[mes])h[mes]={corte:v.corte||'',dias:{}};
+      Object.entries(v.dias).forEach(([dia,dd])=>{if(dd&&dd.cob){h[mes].dias[dia]=dd;n++;}});
+    });
+    if(histEscribir(h)){histInit();alert('Restaurados '+n+' días al historial.');}
+  };
+  r.readAsText(file);
+}
+
 // ── DOWNLOAD EXCEL WITH COLORS ────────────────────────────────────────────────
 function downloadExcel(){
   if(!processedData.length)return;
@@ -855,6 +1080,7 @@ function downloadExcel(){
   const d=new Date();
   XLSX.writeFile(wb,`CLIENTES_PROCESADOS_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.xlsx`,{bookSST:false,type:'binary',cellStyles:true});
 }
+histInit();
 </script>
 </body>
 </html>
