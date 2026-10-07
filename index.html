@@ -300,6 +300,14 @@
     </div>
     <div style="font-size:.82rem;font-weight:700;color:var(--primary);margin:18px 0 6px;" id="segTitMes">Acumulado del mes</div>
     <div class="tbl-wrap"><table id="segMesTable"><thead></thead><tbody></tbody></table></div>
+    <div id="segMesListaWrap" style="display:none;margin-top:16px;">
+      <div class="btn-row" style="margin-bottom:6px;justify-content:space-between;">
+        <div style="font-size:.85rem;font-weight:700;color:var(--primary);" id="segMesListaTit"></div>
+        <span class="lnk" onclick="document.getElementById('segMesListaWrap').style.display='none'">✖ Cerrar lista</span>
+      </div>
+      <div id="segMesListaNota" style="font-size:.78rem;color:var(--mut);margin-bottom:6px;"></div>
+      <div class="tbl-wrap"><table id="segMesLista"><thead></thead><tbody></tbody></table></div>
+    </div>
   </div>
 
 </main>
@@ -1265,7 +1273,7 @@ function segGuardarDia(data){
     const ri=SEG_ROD.indexOf(r['Calificación Real Afectación']);rod+=ri<0?'-':String(ri);
     d.push(r['HOY']===''?null:r['HOY']);
     s.push(Math.round((parseFloat(r['Suma Saldo Crédito Final Total'])||0)*100)/100);
-    M.cli[id]=[String(r['Nombre del Cliente']||''),String(r['Número de Identificación']||''),String(r['Calificación Cliente Mensual']||'')];
+    M.cli[id]=[String(r['Nombre del Cliente']||''),String(r['Número de Identificación']||''),String(r['Calificación Cliente Mensual']||''),String(r['Dirección Principal']||'')];
   });
   const hoy={hora,cobs,ids,cob,cat,rod,d,s};
   hoy.cnt=segConteoHoy(hoy);
@@ -1318,6 +1326,7 @@ function segRender(){
   const vac=document.getElementById('segVacio'),kp=document.getElementById('segResumen');
   const mth=document.querySelector('#segMesTable thead'),mtb=document.querySelector('#segMesTable tbody');
   document.getElementById('segListaWrap').style.display='none';
+  document.getElementById('segMesListaWrap').style.display='none';
   if(!h[mes]||!h[mes].dias[dia]){
     th.innerHTML=tb.innerHTML=mth.innerHTML=mtb.innerHTML=kp.innerHTML='';
     vac.textContent='Aún no hay días guardados. Procesa un archivo: el primer día queda como base y desde el siguiente se ven los cambios.';
@@ -1367,13 +1376,64 @@ function segRender(){
   mtb.innerHTML=filas.length?filas.map((f,i)=>{['L','M','D','E','X'].forEach(x=>T[x]+=f[x]);
     const col=f.neto>0?'var(--mej)':f.neto<0?'var(--emp)':'#555';
     return `<tr><td style="text-align:center">${i+1}</td><td>${escH(f.c)}</td><td style="text-align:center">${f.dias}</td>
-      <td style="text-align:center;color:var(--mej);font-weight:700">${f.L}</td><td style="text-align:center;color:var(--man);font-weight:700">${f.M}</td>
-      <td style="text-align:center;color:var(--emp);font-weight:700">${f.D}</td><td style="text-align:center">${f.E}</td><td style="text-align:center">${f.X}</td>
+      <td style="text-align:center;color:var(--mej);font-weight:700">${segNumMes(f.L,'L',f.c)}</td><td style="text-align:center;color:var(--man);font-weight:700">${segNumMes(f.M,'M',f.c)}</td>
+      <td style="text-align:center;color:var(--emp);font-weight:700">${segNumMes(f.D,'D',f.c)}</td><td style="text-align:center">${segNumMes(f.E,'E',f.c)}</td><td style="text-align:center">${segNumMes(f.X,'X',f.c)}</td>
       <td style="text-align:center;color:${col};font-weight:800">${f.neto>0?'+':''}${f.neto}</td></tr>`;}).join('')+
-    `<tr style="font-weight:800;background:#e8f4fd;"><td></td><td>TOTAL</td><td></td><td style="text-align:center">${T.L}</td><td style="text-align:center">${T.M}</td>
-      <td style="text-align:center">${T.D}</td><td style="text-align:center">${T.E}</td><td style="text-align:center">${T.X}</td>
+    `<tr style="font-weight:800;background:#e8f4fd;"><td></td><td>TOTAL</td><td></td><td style="text-align:center">${segNumMes(T.L,'L',null)}</td><td style="text-align:center">${segNumMes(T.M,'M',null)}</td>
+      <td style="text-align:center">${segNumMes(T.D,'D',null)}</td><td style="text-align:center">${segNumMes(T.E,'E',null)}</td><td style="text-align:center">${segNumMes(T.X,'X',null)}</td>
       <td style="text-align:center">${T.L-T.D>0?'+':''}${T.L-T.D}</td></tr>`
     :'<tr><td colspan="9">Aún no hay cambios acumulados (se necesita al menos un segundo día procesado en el mes).</td></tr>';
+}
+// ── Acumulado del mes: lista de clientes detrás de cada número (clic)
+function segNumMes(n,tipo,cob){
+  if(!n)return String(n);
+  return `<span class="lnk" style="color:inherit;font-weight:inherit;text-decoration:none;border-bottom:1px dotted currentColor;cursor:pointer" `+
+    `onclick="segVerListaMes('${tipo}',${cob===null?'null':`decodeURIComponent('${encodeURIComponent(cob)}')`})">${n}</span>`;
+}
+function segListaMesClientes(tipo,cobFiltro){
+  const h=segLeer();const mes=document.getElementById('segMes').value;const dia=document.getElementById('segDia').value;
+  const M=h[mes];const out=[],sinDet=[];if(!M)return {out,sinDet};
+  Object.keys(M.dias).filter(x=>x<=dia).sort().forEach(x=>{
+    const day=M.dias[x];if(!day.mov)return;
+    const pk=segPrevDia(M,x),prev=pk?M.dias[pk]:null;
+    if(!day.ids||!prev||!prev.ids){sinDet.push(x);return;}
+    const pm=new Map();prev.ids.forEach((id,i)=>pm.set(id,i));
+    const fila=(id,cob,cat,ri,sal)=>{const c=(M.cli&&M.cli[id])||[id,'','',''];
+      out.push({fecha:x,nombre:c[0],ident:c[1],dir:c[3]||'',calM:c[2]||'',cal:ri&&ri!=='-'?SEG_ROD[+ri]:'',cat:cat?SEG_CAT_TXT[cat]:'—',cob,saldo:sal??0});};
+    if(tipo==='X'){
+      const hs=new Set(day.ids);
+      prev.ids.forEach((id,i)=>{const cob=prev.cobs[prev.cob[i]];if(hs.has(id)||(cobFiltro&&cob!==cobFiltro))return;
+        fila(id,cob,prev.cat[i],prev.rod[i],prev.s[i]);});
+      return;
+    }
+    day.ids.forEach((id,i)=>{
+      const cob=day.cobs[day.cob[i]];if(cobFiltro&&cob!==cobFiltro)return;
+      const c=day.cat[i],pi=pm.has(id)?pm.get(id):null;
+      let ok=false;
+      if(tipo==='E')ok=pi===null;
+      else if(pi!==null&&prev.cat[pi]!==c)ok=(tipo==='L'&&c==='J')||(tipo==='M'&&c==='M')||(tipo==='D'&&c==='D');
+      if(ok)fila(id,cob,c,day.rod[i],day.s[i]);
+    });
+  });
+  return {out,sinDet};
+}
+function segVerListaMes(tipo,cob){
+  const {out,sinDet}=segListaMesClientes(tipo,cob);
+  const wrap=document.getElementById('segMesListaWrap');wrap.style.display='';
+  const nombreTipo={L:'Libera mes',M:'Mantiene mes',D:'Deteriora mes',E:'Entran',X:'Salen'}[tipo]||tipo;
+  const dia=document.getElementById('segDia').value;
+  document.getElementById('segMesListaTit').textContent=`${cob||'TOTAL'} · ${nombreTipo} · acumulado hasta el ${fmtDia(dia)} (${out.length})`;
+  document.getElementById('segMesListaNota').textContent=sinDet.length?
+    `Sin detalle cliente a cliente para: ${sinDet.map(fmtDia).join(', ')} (solo se conservan los últimos ${SEG_DIAS_DETALLE} días procesados).`:'';
+  const th=document.querySelector('#segMesLista thead'),tb=document.querySelector('#segMesLista tbody');
+  th.innerHTML='<tr>'+['Fecha','Cliente','Identificación','Dirección','Calificación Mensual','Calificación','Categoría Rodamiento','Cobrador','Saldo Crédito Final Unificado'].map(c=>`<th>${c}</th>`).join('')+'</tr>';
+  const col=t=>t==='Libera'?'var(--mej)':t==='Deteriora'?'var(--emp)':t==='Mantiene'?'var(--man)':'#555';
+  tb.innerHTML=out.length?out.sort((a,b)=>a.fecha.localeCompare(b.fecha)||a.cob.localeCompare(b.cob)||a.nombre.localeCompare(b.nombre)).map(r=>`<tr>
+    <td style="text-align:center">${fmtDia(r.fecha)}</td><td>${escH(r.nombre)}</td><td>${escH(r.ident)}</td><td>${escH(r.dir)}</td>
+    <td style="text-align:center">${escH(r.calM)}</td><td style="text-align:center">${escH(r.cal)}</td><td style="color:${col(r.cat)};font-weight:700">${r.cat}</td><td>${escH(r.cob)}</td>
+    <td style="text-align:right">${money(r.saldo)}</td></tr>`).join('')
+    :'<tr><td colspan="9">Sin clientes.</td></tr>';
+  wrap.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 // Lista de clientes detrás de un número. tipo: L,M,D,O,N,E,X (cambios) o hJ,hM,hD (situación de hoy)
 function segListaClientes(tipo,cobFiltro){
